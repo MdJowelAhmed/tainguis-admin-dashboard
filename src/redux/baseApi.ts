@@ -53,6 +53,7 @@ export const baseApi = createApi({
     'Auth',
     'Users',
     'User',
+    'LiveShow',
     // Add more tag types here as you create new API slices
   ],
   endpoints: () => ({}),

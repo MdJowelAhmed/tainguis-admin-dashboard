@@ -1,14 +1,12 @@
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { App, Table } from 'antd'
+import { App, Table, Spin, Alert } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   ArrowLeft,
   Ban,
   CalendarClock,
   ExternalLink,
-  EyeOff,
   Gavel,
-  Pin,
   Radio,
   ShoppingBag,
   Timer,
@@ -19,39 +17,32 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import {
-  cancelStream,
-  endStream,
-  hideMessage,
-  pinMessage,
-  useStream,
-} from '../../components/live/liveStore'
-import {
-  formatLabels,
-  statusLabels,
-  type LiveBid,
+  useGetLiveShowByIdQuery,
+  useEndLiveShowMutation,
+  useGetLiveInChattingMessageQuery,
   type LiveProduct,
-  type LiveStatus,
-} from '../../components/live/liveData'
-import { useUser } from '../../components/users/usersStore'
+} from '../../redux/api/liveShowApi'
+
+// ─── Formatters ───────────────────────────────────────────────────────────────
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
-  currency: 'MXN',
+  currency: 'USD',
   maximumFractionDigits: 0,
 })
 const numberFmt = new Intl.NumberFormat('en-US')
 
-const statusStyles: Record<LiveStatus, { bg: string; text: string }> = {
+const statusStyles: Record<string, { bg: string; text: string }> = {
   live: { bg: 'bg-red-100', text: 'text-red-700' },
   scheduled: { bg: 'bg-blue-100', text: 'text-blue-700' },
-  ended: { bg: 'bg-gray-100', text: 'text-gray-700' },
+  completed: { bg: 'bg-gray-100', text: 'text-gray-700' },
   cancelled: { bg: 'bg-gray-200', text: 'text-gray-600' },
 }
 
-function formatDuration(startIso: string, endIso?: string): string {
+function formatDuration(startIso?: string, endIso?: string): string {
   if (!startIso) return '—'
-  const start = new Date(startIso.replace(' ', 'T'))
-  const end = endIso ? new Date(endIso.replace(' ', 'T')) : new Date()
+  const start = new Date(startIso)
+  const end = endIso ? new Date(endIso) : new Date()
   const ms = end.getTime() - start.getTime()
   if (!Number.isFinite(ms) || ms < 0) return '—'
   const m = Math.floor(ms / 60000)
@@ -59,84 +50,96 @@ function formatDuration(startIso: string, endIso?: string): string {
   return h > 0 ? `${h}h ${m % 60}m` : `${m}m`
 }
 
-function formatSeconds(s: number) {
-  if (!s) return '—'
-  const m = Math.floor(s / 60)
-  const sec = s % 60
-  return m > 0 ? `${m}m ${sec}s` : `${sec}s`
-}
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function LiveDetails() {
   const { id } = useParams<{ id: string }>()
-  const stream = useStream(id)
-  const seller = useUser(stream?.sellerId)
   const navigate = useNavigate()
   const { modal, message } = App.useApp()
 
-  if (!stream) {
+  // 1. Fetch Show Details
+  const { data: showRes, isLoading: isLoadingShow, isError: isErrorShow } = useGetLiveShowByIdQuery(id!, { skip: !id })
+  const detail = showRes?.data
+
+  // 2. Fetch Chat Messages (only if chatRoomId is available)
+  const chatRoomId = detail?.chat?.chatRoomId
+  const { data: chatRes, isLoading: isLoadingChat } = useGetLiveInChattingMessageQuery(chatRoomId!, { skip: !chatRoomId })
+  const messages = chatRes?.data ?? []
+
+  // 3. End Stream Mutation
+  const [endLiveShow, { isLoading: isEnding }] = useEndLiveShowMutation()
+
+  // ── Loading & Error states ─────────────────────────────────────────────────
+  if (isLoadingShow) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-        <p className="text-base text-gray-700">Stream not found.</p>
-        <Link
-          to="/dashboard/live"
-          className="text-sm font-medium text-brand hover:underline"
-        >
+      <div className="flex items-center justify-center py-24">
+        <Spin size="large" tip="Loading live stream details…" />
+      </div>
+    )
+  }
+
+  if (isErrorShow || !detail) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
+        <Alert type="error" message="Stream not found." showIcon />
+        <Link to="/dashboard/live" className="text-sm font-medium text-brand hover:underline">
           Back to live streams
         </Link>
       </div>
     )
   }
 
+  const stream = detail.show
+  const seller = stream.seller
+  const products = detail.liveProducts
+  const bids = detail.bids
+  const sellerStats = detail.sellerStats
+
   const handleEnd = () => {
     modal.confirm({
       title: 'End this stream?',
-      content:
-        'Ending a stream immediately disconnects all viewers. The seller will need to start a new stream.',
+      content: 'Ending a stream immediately disconnects all viewers. The seller will need to start a new stream.',
       okText: 'End stream',
       okButtonProps: { danger: true },
-      onOk: () => {
-        endStream(stream.id)
-        message.success('Stream ended.')
+      onOk: async () => {
+        try {
+          await endLiveShow(stream._id).unwrap()
+          message.success('Stream ended successfully.')
+        } catch {
+          message.error('Failed to end stream.')
+        }
       },
     })
   }
 
-  const handleCancel = () => {
-    modal.confirm({
-      title: 'Cancel scheduled stream?',
-      content: 'The seller will be notified the stream is cancelled.',
-      okText: 'Cancel stream',
-      okButtonProps: { danger: true },
-      onOk: () => {
-        cancelStream(stream.id)
-        message.success('Stream cancelled.')
-      },
-    })
-  }
-
-  const statusStyle = statusStyles[stream.status]
-  const isAuction = stream.format === 'auction'
-  const totalStock = stream.products.reduce((n, p) => n + p.stock, 0)
-  const visibleMessages = stream.messages.filter((m) => !m.hidden)
-  const hiddenMessageCount = stream.messages.length - visibleMessages.length
+  const isAuction = products.some(p => p.product.salesFormat === 'auction')
+  const totalStock = products.reduce((n, p) => n + p.product.stock, 0)
+  const statusStyle = statusStyles[stream.status] ?? statusStyles.cancelled
 
   const productColumns: ColumnsType<LiveProduct> = [
     {
-      title: 'Product',
-      key: 'name',
+      title: 'Product ID',
+      key: 'product',
       render: (_, p) => (
-        <div className="text-sm font-medium text-gray-900">{p.name}</div>
+        <div className="text-sm font-medium text-gray-900">{p.product._id}</div>
       ),
     },
     {
-      title: 'Price',
+      title: 'Format',
+      key: 'format',
+      render: (_, p) => (
+        <span className="text-sm text-gray-700 capitalize">{p.product.salesFormat}</span>
+      ),
+    },
+    {
+      title: 'Price / Bid Start',
       key: 'price',
       align: 'right',
       render: (_, p) =>
-        p.price > 0 ? (
-          <span className="text-sm text-gray-800">{currency.format(p.price)}</span>
+        p.product.bidStartFrom ? (
+          <span className="text-sm text-gray-800">{currency.format(p.product.bidStartFrom)}</span>
         ) : (
-          <span className="text-xs italic text-gray-500">Auction</span>
+          <span className="text-sm text-gray-800">—</span>
         ),
     },
     {
@@ -144,7 +147,7 @@ export default function LiveDetails() {
       key: 'stock',
       align: 'right',
       render: (_, p) => (
-        <span className="text-sm text-gray-700">{numberFmt.format(p.stock)}</span>
+        <span className="text-sm text-gray-700">{numberFmt.format(p.product.stock)}</span>
       ),
     },
     {
@@ -153,7 +156,7 @@ export default function LiveDetails() {
       align: 'right',
       render: (_, p) => (
         <span className="text-sm font-semibold text-gray-900">
-          {numberFmt.format(p.sold)}
+          {numberFmt.format(p.soldCount)}
         </span>
       ),
     },
@@ -163,341 +166,254 @@ export default function LiveDetails() {
       align: 'right',
       render: (_, p) => (
         <span className="text-sm font-semibold text-gray-900">
-          {currency.format(p.price * p.sold)}
+          {currency.format(p.revenue)}
         </span>
       ),
-    },
-  ]
-
-  const bidColumns: ColumnsType<LiveBid> = [
-    {
-      title: 'Bidder',
-      key: 'bidder',
-      render: (_, b) => (
-        <Link
-          to={`/dashboard/users/${b.bidderId}`}
-          className="text-sm text-gray-900 hover:text-brand"
-        >
-          {b.bidderName}
-        </Link>
-      ),
-    },
-    {
-      title: 'Amount',
-      key: 'amount',
-      align: 'right',
-      render: (_, b) => (
-        <span className="text-sm font-semibold text-gray-900">
-          {currency.format(b.amount)}
-        </span>
-      ),
-      sorter: (a, b) => a.amount - b.amount,
-      defaultSortOrder: 'descend',
-    },
-    {
-      title: 'Placed at',
-      dataIndex: 'placedAt',
-      key: 'placedAt',
-      render: (d: string) => <span className="text-xs text-gray-500">{d}</span>,
     },
   ]
 
   return (
-    <div className="flex flex-col gap-6 py-6">
-      <div>
-        <button
-          type="button"
-          onClick={() => navigate('/dashboard/live')}
-          className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
-        >
-          <ArrowLeft size={16} />
-          Back to live streams
-        </button>
-      </div>
-
-      <section className="rounded-2xl border border-surface-border bg-surface-card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div
-              className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-white"
-              style={{ backgroundColor: stream.thumbnailColor }}
-            >
-              {isAuction ? <Gavel size={26} /> : <Video size={26} />}
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  {stream.id}
-                </span>
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusStyle.bg} ${statusStyle.text}`}
-                >
-                  {stream.status === 'live' && (
-                    <span className="relative flex h-2 w-2">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-                    </span>
-                  )}
-                  {statusLabels[stream.status]}
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-surface-elevated px-2 py-0.5 text-xs font-medium text-gray-700">
-                  {isAuction ? <Gavel size={12} /> : <Radio size={12} />}
-                  {formatLabels[stream.format]}
-                </span>
-                <span className="text-xs text-gray-500">{stream.category}</span>
-              </div>
-              <h1 className="mt-2 text-2xl font-semibold text-gray-900">
-                {stream.title}
-              </h1>
-              <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                {stream.startedAt && (
-                  <span className="inline-flex items-center gap-1">
-                    <Timer size={12} />
-                    Started {stream.startedAt}
-                  </span>
-                )}
-                {stream.scheduledFor && stream.status === 'scheduled' && (
-                  <span className="inline-flex items-center gap-1">
-                    <CalendarClock size={12} />
-                    Scheduled for {stream.scheduledFor}
-                  </span>
-                )}
-                {stream.endedAt && (
-                  <span className="inline-flex items-center gap-1">
-                    <Timer size={12} />
-                    Ended {stream.endedAt} · duration{' '}
-                    {formatDuration(stream.startedAt ?? stream.endedAt, stream.endedAt)}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {stream.status === 'live' && (
-              <button
-                type="button"
-                onClick={handleEnd}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700"
-              >
-                <Ban size={14} />
-                End stream
-              </button>
-            )}
-            {stream.status === 'scheduled' && (
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="inline-flex h-10 items-center gap-2 rounded-md border border-red-200 bg-white px-4 text-sm font-medium text-red-700 hover:bg-red-50"
-              >
-                <Ban size={14} />
-                Cancel stream
-              </button>
-            )}
-            {seller && (
-              <Link
-                to={`/dashboard/users/${seller.id}`}
-                className="inline-flex h-10 items-center gap-2 rounded-md border border-surface-border bg-white px-4 text-sm font-medium text-gray-800 hover:bg-surface-elevated"
-              >
-                Seller profile
-                <ExternalLink size={12} />
-              </Link>
-            )}
-          </div>
+    <Spin spinning={isEnding}>
+      <div className="flex flex-col gap-6 py-6">
+        <div>
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard/live')}
+            className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
+          >
+            <ArrowLeft size={16} />
+            Back to live streams
+          </button>
         </div>
-      </section>
 
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Stat
-          label={stream.status === 'live' ? 'Current viewers' : 'Peak viewers'}
-          value={
-            stream.status === 'live' ? stream.currentViewers : stream.peakViewers
-          }
-          icon={Users}
-          tone="brand"
-        />
-        <Stat
-          label="Unique viewers"
-          value={stream.uniqueViewers}
-          icon={Users}
-          tone="blue"
-        />
-        <Stat
-          label={isAuction ? 'Current bid' : 'Stream sales'}
-          value={
-            isAuction ? stream.currentBid ?? 0 : stream.totalSales
-          }
-          icon={Wallet}
-          tone="green"
-          asCurrency
-        />
-        <Stat
-          label={isAuction ? 'Total bidders' : 'Items sold'}
-          value={isAuction ? stream.bidderCount ?? 0 : stream.itemsSold}
-          icon={isAuction ? Gavel : ShoppingBag}
-          tone="orange"
-        />
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
-        <div className="flex flex-col gap-6">
-          <div className="rounded-2xl border border-surface-border bg-surface-card">
-            <div className="flex items-center justify-between border-b border-surface-border p-5">
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">
-                  Featured products
-                </h2>
-                <p className="mt-1 text-xs text-gray-500">
-                  {stream.products.length} listing
-                  {stream.products.length === 1 ? '' : 's'} · {totalStock} units in stock
-                </p>
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-gray-500">Avg watch</div>
-                <div className="text-sm font-medium text-gray-900">
-                  {formatSeconds(stream.avgWatchSeconds)}
-                </div>
-              </div>
-            </div>
-            <Table<LiveProduct>
-              className="dashboard-table"
-              rowKey="productId"
-              columns={productColumns}
-              dataSource={stream.products}
-              pagination={false}
-              locale={{ emptyText: 'No products linked to this stream.' }}
-            />
-          </div>
-
-          {isAuction && (
-            <div className="rounded-2xl border border-surface-border bg-surface-card">
-              <div className="flex items-center justify-between border-b border-surface-border p-5">
-                <div>
-                  <h2 className="text-base font-semibold text-gray-900">
-                    Bid history
-                  </h2>
-                  <p className="mt-1 text-xs text-gray-500">
-                    {stream.bids?.length ?? 0} bid
-                    {(stream.bids?.length ?? 0) === 1 ? '' : 's'} from{' '}
-                    {stream.bidderCount ?? 0} unique bidder
-                    {(stream.bidderCount ?? 0) === 1 ? '' : 's'}
-                  </p>
-                </div>
-                {stream.bidEndsAt && stream.status === 'live' && (
-                  <div className="text-right">
-                    <div className="text-xs text-gray-500">Ends</div>
-                    <div className="text-sm font-medium text-gray-900">
-                      {stream.bidEndsAt}
-                    </div>
+        {/* ── Header ────────────────────────────────────────────────────────── */}
+        <section className="rounded-2xl border border-surface-border bg-surface-card p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-surface-elevated text-gray-400">
+                {stream.thumbnail ? (
+                  <img src={stream.thumbnail} alt={stream.title} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    {isAuction ? <Gavel size={26} /> : <Video size={26} />}
                   </div>
                 )}
               </div>
-              <Table<LiveBid>
-                className="dashboard-table"
-                rowKey="id"
-                columns={bidColumns}
-                dataSource={stream.bids ?? []}
-                pagination={false}
-                locale={{ emptyText: 'No bids placed yet.' }}
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">
-                Live chat
-              </h2>
-              <span className="text-xs text-gray-500">
-                {stream.messages.length} message
-                {stream.messages.length === 1 ? '' : 's'}
-                {hiddenMessageCount > 0 && ` · ${hiddenMessageCount} hidden`}
-              </span>
-            </div>
-            {stream.messages.length === 0 ? (
-              <p className="mt-4 text-sm text-gray-500">No chat activity yet.</p>
-            ) : (
-              <ul className="mt-4 max-h-80 space-y-3 overflow-y-auto pr-1">
-                {stream.messages.map((m) => (
-                  <li
-                    key={m.id}
-                    className={`group rounded-xl border p-3 ${
-                      m.hidden
-                        ? 'border-dashed border-gray-200 bg-gray-50 opacity-60'
-                        : m.pinned
-                          ? 'border-amber-200 bg-amber-50'
-                          : 'border-surface-border bg-surface-elevated'
-                    }`}
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    {stream._id}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${statusStyle.bg} ${statusStyle.text}`}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-900">
-                          {m.authorName}
-                          {m.pinned && (
-                            <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 text-[10px] text-amber-700">
-                              <Pin size={10} />
-                              Pinned
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-gray-500">{m.sentAt}</div>
-                      </div>
-                      <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
-                        <button
-                          type="button"
-                          onClick={() => pinMessage(stream.id, m.id)}
-                          aria-label="Pin message"
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-white hover:text-amber-700"
-                        >
-                          <Pin size={12} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => hideMessage(stream.id, m.id)}
-                          aria-label={m.hidden ? 'Unhide message' : 'Hide message'}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-white hover:text-red-600"
-                        >
-                          <EyeOff size={12} />
-                        </button>
-                      </div>
-                    </div>
-                    <p className="mt-1.5 whitespace-pre-line text-sm text-gray-800">
-                      {m.body}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {seller && (
-            <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
-              <h2 className="text-sm font-semibold text-gray-900">Seller</h2>
-              <div className="mt-3">
-                <Link
-                  to={`/dashboard/users/${seller.id}`}
-                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900 hover:text-brand"
-                >
-                  {seller.name}
-                  <ExternalLink size={12} />
-                </Link>
-                <div className="mt-1 text-xs text-gray-500">{seller.email}</div>
-                <div className="text-xs text-gray-500">{seller.city}</div>
-                <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-surface-elevated px-2 py-0.5 text-[11px] font-medium text-gray-700">
-                  <TrendingUp size={11} />
-                  {seller.orders.length} order
-                  {seller.orders.length === 1 ? '' : 's'} placed as buyer
+                    {stream.status === 'live' && (
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                      </span>
+                    )}
+                    {stream.status}
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-surface-elevated px-2 py-0.5 text-xs font-medium text-gray-700 capitalize">
+                    {isAuction ? <Gavel size={12} /> : <Radio size={12} />}
+                    {isAuction ? 'Auction' : 'Live Drop'}
+                  </span>
+                  <span className="text-xs text-gray-500">{stream.category.name}</span>
+                </div>
+                <h1 className="mt-2 text-2xl font-semibold text-gray-900">
+                  {stream.title}
+                </h1>
+                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                  {stream.startedAt && (
+                    <span className="inline-flex items-center gap-1">
+                      <Timer size={12} />
+                      Started {new Date(stream.startedAt).toLocaleString()}
+                    </span>
+                  )}
+                  {stream.scheduledAt && stream.status === 'scheduled' && (
+                    <span className="inline-flex items-center gap-1">
+                      <CalendarClock size={12} />
+                      Scheduled for {new Date(stream.scheduledAt).toLocaleString()}
+                    </span>
+                  )}
+                  {stream.endedAt && (
+                    <span className="inline-flex items-center gap-1">
+                      <Timer size={12} />
+                      Ended {new Date(stream.endedAt).toLocaleString()} · duration{' '}
+                      {formatDuration(stream.startedAt, stream.endedAt)}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      </section>
-    </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {stream.status === 'live' && (
+                <button
+                  type="button"
+                  onClick={handleEnd}
+                  className="inline-flex h-10 items-center gap-2 rounded-md bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700"
+                >
+                  <Ban size={14} />
+                  End stream
+                </button>
+              )}
+              {seller && (
+                <Link
+                  to={`/dashboard/users/${seller._id}`}
+                  className="inline-flex h-10 items-center gap-2 rounded-md border border-surface-border bg-white px-4 text-sm font-medium text-gray-800 hover:bg-surface-elevated"
+                >
+                  Seller profile
+                  <ExternalLink size={12} />
+                </Link>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Stats ─────────────────────────────────────────────────────────── */}
+        <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <Stat
+            label={stream.status === 'live' ? 'Current viewers' : 'Total Views'}
+            value={stream.status === 'live' ? stream.activeViewers : stream.totalViews}
+            icon={Users}
+            tone="brand"
+          />
+          <Stat
+            label="Total Hearts"
+            value={stream.totalHearts}
+            icon={Users}
+            tone="blue"
+          />
+          <Stat
+            label="Current Bid"
+            value={bids?.currentBid ?? 0}
+            icon={Wallet}
+            tone="green"
+            asCurrency
+          />
+          <Stat
+            label="Total Bidders"
+            value={bids?.totalBidders ?? 0}
+            icon={Gavel}
+            tone="orange"
+          />
+        </section>
+
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
+          <div className="flex flex-col gap-6">
+            
+            {/* ── Products Table ──────────────────────────────────────────────── */}
+            <div className="rounded-2xl border border-surface-border bg-surface-card">
+              <div className="flex items-center justify-between border-b border-surface-border p-5">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900">Featured products</h2>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {products.length} listing{products.length === 1 ? '' : 's'} · {totalStock} units in stock
+                  </p>
+                </div>
+              </div>
+              <Table<LiveProduct>
+                className="dashboard-table"
+                rowKey="_id"
+                columns={productColumns}
+                dataSource={products}
+                pagination={false}
+                locale={{ emptyText: 'No products linked to this stream.' }}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {/* ── Chat ────────────────────────────────────────────────────────── */}
+            <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-gray-900">Live chat</h2>
+                <span className="text-xs text-gray-500">
+                  {messages.length} message{messages.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <Spin spinning={isLoadingChat}>
+                {messages.length === 0 ? (
+                  <p className="mt-4 text-sm text-gray-500">No chat activity yet.</p>
+                ) : (
+                  <ul className="mt-4 max-h-80 space-y-3 overflow-y-auto pr-1">
+                    {messages.map((m) => (
+                      <li
+                        key={m._id}
+                        className="group rounded-xl border border-surface-border bg-surface-elevated p-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-900">
+                              {m.sender?.profileImage && (
+                                <img
+                                  src={m.sender.profileImage}
+                                  alt=""
+                                  className="h-4 w-4 rounded-full object-cover"
+                                />
+                              )}
+                              {m.sender?.name ?? 'Unknown'}
+                            </div>
+                            <div className="text-[11px] text-gray-500">
+                              {new Date(m.createdAt).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                        <p className="mt-1.5 whitespace-pre-line text-sm text-gray-800">
+                          {m.text}
+                        </p>
+                        {m.image && (
+                          <img
+                            src={m.image}
+                            alt="Chat attachment"
+                            className="mt-2 max-h-24 rounded-lg border object-cover"
+                          />
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Spin>
+            </div>
+
+            {/* ── Seller Stats ────────────────────────────────────────────────── */}
+            {seller && (
+              <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
+                <h2 className="text-sm font-semibold text-gray-900">Seller</h2>
+                <div className="mt-3">
+                  <Link
+                    to={`/dashboard/users/${seller._id}`}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900 hover:text-brand"
+                  >
+                    {seller.name}
+                    <ExternalLink size={12} />
+                  </Link>
+                  <div className="mt-1 text-xs text-gray-500">{seller.email}</div>
+                  <div className="mt-2 text-xs text-gray-500 text-balance">{seller.address}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-surface-elevated px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                      <Radio size={11} /> {sellerStats?.totalShows ?? 0} shows
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-md bg-surface-elevated px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                      <ShoppingBag size={11} /> {sellerStats?.totalProducts ?? 0} products
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-md bg-surface-elevated px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                      <TrendingUp size={11} /> {sellerStats?.totalOrders ?? 0} orders
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </Spin>
   )
 }
+
+// ─── Helper Components ────────────────────────────────────────────────────────
 
 type Tone = 'brand' | 'blue' | 'green' | 'orange'
 

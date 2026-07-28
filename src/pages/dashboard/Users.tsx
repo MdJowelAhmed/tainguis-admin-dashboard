@@ -1,15 +1,14 @@
 import { Link, useSearchParams } from 'react-router-dom'
-import { Table, Dropdown, Input, Select, App, Spin, Alert } from 'antd'
+import { Table, Dropdown, Select, App, Spin, Alert } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-
   CircleSlash,
   Eye,
   MoreHorizontal,
-  Search,
   ShieldCheck,
   UserCheck,
 } from 'lucide-react'
+import SearchInput from '../../components/ui/SearchInput'
 import { useGetUsersQuery, useUpdateUserStatusMutation } from '../../redux/api/userApi'
 import type { UserListItem, UserStatus, GetUsersParams } from '../../redux/api/userApi'
 import StatusBadge from '../../components/users/StatusBadge'
@@ -241,15 +240,11 @@ export default function Users() {
       {/* Table */}
       <section className="rounded-2xl border border-surface-border bg-surface-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-surface-border p-4">
-          <Input
-            allowClear
+          <SearchInput
             value={search}
-            onChange={(e) => {
-              updateParams({ searchTerm: e.target.value, page: null })
-            }}
+            onChange={(val) => updateParams({ searchTerm: val, page: null })}
             placeholder="Search by name, email, or phone"
-            prefix={<Search size={16} className="text-gray-400" />}
-            className="max-w-[320px]"
+            debounceMs={400}
           />
           <Select
             value={statusFilter}
