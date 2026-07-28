@@ -39,7 +39,7 @@ export interface UserDetail {
 export interface GetUsersParams {
   page?: number
   limit?: number
-  search?: string
+  searchTerm?: string
   status?: UserStatus | string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'

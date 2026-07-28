@@ -1,61 +1,79 @@
-import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { App, Table, Tag } from 'antd'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { App, Spin, Alert, Tag, Table } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   ArrowLeft,
-  Ban,
   CircleSlash,
   Mail,
   MapPin,
-  Pencil,
   Phone,
   ShoppingBag,
   TrendingUp,
   UserCheck,
   Wallet,
 } from 'lucide-react'
-import { setUserStatus, useUser } from '../../components/users/usersStore'
-import {
-  topProductsForUser,
-  userTotals,
-  type Order,
-  type OrderStatus,
-  type UserStatus,
-} from '../../components/users/usersData'
+import { useGetUserByIdQuery, useUpdateUserStatusMutation } from '../../redux/api/userApi'
+import type { UserStatus } from '../../redux/api/userApi'
 import StatusBadge from '../../components/users/StatusBadge'
-import EditUserModal from '../../components/users/EditUserModal'
-import { useReportsAgainst } from '../../components/reports/reportsStore'
-import { reasonLabels } from '../../components/reports/reportsData'
-import ReportStatusBadge from '../../components/reports/ReportStatusBadge'
-import { Flag } from 'lucide-react'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface OrderItem {
+  _id?: string
+  name?: string
+  quantity?: number
+  price?: number
+}
+
+interface OrderRecord {
+  _id: string
+  createdAt: string
+  status: string
+  total?: number
+  items?: OrderItem[]
+}
+
+// ─── Currency ─────────────────────────────────────────────────────────────────
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
-  currency: 'MXN',
+  currency: 'USD',
   maximumFractionDigits: 0,
 })
 
-const orderStatusColor: Record<OrderStatus, string> = {
-  pending: 'gold',
-  processing: 'blue',
-  shipped: 'geekblue',
-  delivered: 'green',
-  cancelled: 'default',
-  refunded: 'red',
-}
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function UserDetails() {
   const { id } = useParams<{ id: string }>()
-  const user = useUser(id)
   const navigate = useNavigate()
   const { modal, message } = App.useApp()
-  const [editing, setEditing] = useState(false)
 
-  if (!user) {
+  const {
+    data: response,
+    isLoading,
+    isError,
+    error,
+  } = useGetUserByIdQuery(id!, { skip: !id })
+
+  const [updateUserStatus, { isLoading: isUpdating }] = useUpdateUserStatusMutation()
+
+  // ── Loading ────────────────────────────────────────────────────────────────
+  if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-        <p className="text-base text-gray-700">User not found.</p>
+      <div className="flex items-center justify-center py-24">
+        <Spin size="large" tip="Loading user details…" />
+      </div>
+    )
+  }
+
+  // ── Error ──────────────────────────────────────────────────────────────────
+  if (isError || !response?.data) {
+    const errMsg =
+      (error as { data?: { message?: string } })?.data?.message ??
+      'User not found.'
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
+        <Alert type="error" message={errMsg} showIcon />
         <Link
           to="/dashboard/users"
           className="text-sm font-medium text-brand hover:underline"
@@ -66,56 +84,50 @@ export default function UserDetails() {
     )
   }
 
-  const totals = userTotals(user)
-  const topProducts = topProductsForUser(user)
-  const reports = useReportsAgainst(user.id)
-  const pendingReports = reports.filter((r) => r.status === 'pending').length
+  const user = response.data
 
+  // ── Status change ──────────────────────────────────────────────────────────
   const confirmStatusChange = (status: UserStatus, label: string) => {
     modal.confirm({
-      title: `${label} ${user.name}?`,
+      title: `${label} "${user.name}"?`,
       content:
-        status === 'banned'
-          ? 'Banned users cannot sign in or place orders.'
-          : status === 'restricted'
-            ? 'Restricted users can browse but cannot checkout.'
-            : 'This user will regain full access to the site.',
+        status === 'inactive'
+          ? 'This user account will be deactivated.'
+          : 'This user will regain full access to the platform.',
       okText: label,
-      okButtonProps: status === 'banned' ? { danger: true } : undefined,
-      onOk: () => {
-        setUserStatus(user.id, status)
-        message.success(`${user.name} is now ${status}.`)
+      onOk: async () => {
+        try {
+          await updateUserStatus({ id: user._id, status }).unwrap()
+          message.success(`${user.name} is now ${status}.`)
+        } catch {
+          message.error('Failed to update status. Please try again.')
+        }
       },
     })
   }
 
-  const orderColumns: ColumnsType<Order> = [
+  // ── Order history columns ──────────────────────────────────────────────────
+  const orderColumns: ColumnsType<OrderRecord> = [
     {
-      title: 'Order',
-      dataIndex: 'id',
-      key: 'id',
-      render: (id: string) => (
+      title: 'Order ID',
+      dataIndex: '_id',
+      key: '_id',
+      render: (oid: string) => (
         <Link
-          to={`/dashboard/orders/${id}`}
+          to={`/dashboard/orders/${oid}`}
           className="text-sm font-medium text-gray-900 hover:text-brand"
         >
-          {id}
+          {oid}
         </Link>
       ),
     },
     {
       title: 'Date',
-      dataIndex: 'date',
-      key: 'date',
-      render: (d: string) => <span className="text-sm text-gray-700">{d}</span>,
-      sorter: (a, b) => a.date.localeCompare(b.date),
-    },
-    {
-      title: 'Items',
-      key: 'items',
-      render: (_, o) => (
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (d: string) => (
         <span className="text-sm text-gray-700">
-          {o.items.reduce((n, i) => n + i.quantity, 0)}
+          {new Date(d).toLocaleDateString()}
         </span>
       ),
     },
@@ -123,10 +135,8 @@ export default function UserDetails() {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (s: OrderStatus) => (
-        <Tag color={orderStatusColor[s]} className="capitalize">
-          {s}
-        </Tag>
+      render: (s: string) => (
+        <Tag className="capitalize">{s}</Tag>
       ),
     },
     {
@@ -136,237 +146,171 @@ export default function UserDetails() {
       align: 'right',
       render: (t: number) => (
         <span className="text-sm font-semibold text-gray-900">
-          {currency.format(t)}
+          {currency.format(t ?? 0)}
         </span>
       ),
-      sorter: (a, b) => a.total - b.total,
     },
   ]
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-6 py-6">
-      <div>
+    <Spin spinning={isUpdating} tip="Updating…">
+      <div className="flex flex-col gap-6 py-6">
+
+        {/* Back */}
         <button
           type="button"
           onClick={() => navigate('/dashboard/users')}
-          className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
+          className="inline-flex w-fit items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
         >
           <ArrowLeft size={16} />
           Back to users
         </button>
-      </div>
 
-      <section className="rounded-2xl border border-surface-border bg-surface-card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-xl font-semibold text-gray-700">
-              {user.avatarUrl ? (
-                <img
-                  src={user.avatarUrl}
-                  alt={user.name}
-                  className="h-full w-full rounded-full object-cover"
-                />
-              ) : (
-                user.name.charAt(0)
-              )}
-            </div>
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-semibold text-gray-900">
-                  {user.name}
-                </h1>
-                <StatusBadge status={user.status} />
+        {/* Profile card */}
+        <section className="rounded-2xl border border-surface-border bg-surface-card p-6">
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            {/* Avatar + name */}
+            <div className="flex items-center gap-4">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-xl font-semibold text-gray-700">
+                {user.profileImage ? (
+                  <img
+                    src={user.profileImage}
+                    alt={user.name}
+                    className="h-full w-full rounded-full object-cover"
+                  />
+                ) : (
+                  user.name.charAt(0).toUpperCase()
+                )}
               </div>
-              <p className="mt-1 text-sm text-gray-500">
-                Joined {user.joinedAt} · Last active {user.lastActiveAt}
-              </p>
-              {user.statusNote && (
-                <p className="mt-2 max-w-xl text-xs text-gray-600">
-                  <span className="font-semibold">Note:</span> {user.statusNote}
+              <div>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-2xl font-semibold text-gray-900">
+                    {user.name}
+                  </h1>
+                  <StatusBadge status={user.status} />
+                </div>
+                <p className="mt-1 text-sm text-gray-500">
+                  Joined {new Date(user.createdAt).toLocaleDateString()}
+                  {user.lastOrderDate
+                    ? ` · Last order ${new Date(user.lastOrderDate).toLocaleDateString()}`
+                    : ''}
                 </p>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              {user.status !== 'active' && (
+                <button
+                  type="button"
+                  onClick={() => confirmStatusChange('active', 'Activate')}
+                  className="inline-flex h-10 items-center gap-2 rounded-md bg-green-600 px-4 text-sm font-semibold text-white hover:bg-green-700"
+                >
+                  <UserCheck size={14} />
+                  Set Active
+                </button>
+              )}
+              {user.status !== 'inactive' && (
+                <button
+                  type="button"
+                  onClick={() => confirmStatusChange('inactive', 'Deactivate')}
+                  className="inline-flex h-10 items-center gap-2 rounded-md bg-amber-500 px-4 text-sm font-semibold text-white hover:bg-amber-600"
+                >
+                  <CircleSlash size={14} />
+                  Set Inactive
+                </button>
               )}
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-surface-border bg-white px-4 text-sm font-medium text-gray-800 hover:bg-surface-elevated"
-            >
-              <Pencil size={14} />
-              Edit
-            </button>
-            {user.status !== 'active' && (
-              <button
-                type="button"
-                onClick={() => confirmStatusChange('active', 'Reinstate')}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-green-600 px-4 text-sm font-semibold text-white hover:bg-green-700"
-              >
-                <UserCheck size={14} />
-                Reinstate
-              </button>
-            )}
-            {user.status !== 'restricted' && (
-              <button
-                type="button"
-                onClick={() => confirmStatusChange('restricted', 'Restrict')}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-amber-500 px-4 text-sm font-semibold text-white hover:bg-amber-600"
-              >
-                <CircleSlash size={14} />
-                Restrict
-              </button>
-            )}
-            {user.status !== 'banned' && (
-              <button
-                type="button"
-                onClick={() => confirmStatusChange('banned', 'Ban')}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700"
-              >
-                <Ban size={14} />
-                Ban
-              </button>
-            )}
+          {/* Contact info */}
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <ContactRow icon={Mail} label="Email" value={user.email} />
+            <ContactRow icon={Phone} label="Phone" value={user.phone || '—'} />
+            <ContactRow icon={MapPin} label="Address" value={user.address || '—'} />
           </div>
-        </div>
-
-        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <ContactRow icon={Mail} label="Email" value={user.email} />
-          <ContactRow icon={Phone} label="Phone" value={user.phone} />
-          <ContactRow
-            icon={MapPin}
-            label="Address"
-            value={`${user.address}, ${user.city}, ${user.country}`}
-          />
-        </div>
-      </section>
-
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Stat
-          label="Total orders"
-          value={String(totals.orderCount)}
-          icon={ShoppingBag}
-        />
-        <Stat
-          label="Total spent"
-          value={currency.format(totals.totalSpent)}
-          icon={Wallet}
-        />
-        <Stat
-          label="Avg. order value"
-          value={currency.format(Math.round(totals.avgOrderValue))}
-          icon={TrendingUp}
-        />
-        <Stat
-          label="Last order"
-          value={totals.lastOrderDate ?? '—'}
-          icon={ShoppingBag}
-        />
-      </section>
-
-      {reports.length > 0 && (
-        <section className="rounded-2xl border border-surface-border bg-surface-card p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
-                <Flag size={16} className="text-red-500" />
-                Reports against this user
-              </h2>
-              <p className="mt-1 text-xs text-gray-500">
-                {reports.length} total
-                {pendingReports > 0 && ` · ${pendingReports} pending review`}
-              </p>
-            </div>
-            {pendingReports > 0 && (
-              <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
-                {pendingReports} pending
-              </span>
-            )}
-          </div>
-
-          <ul className="mt-4 divide-y divide-surface-border">
-            {reports.map((r) => (
-              <li key={r.id} className="flex items-center gap-3 py-3">
-                <div className="min-w-0 flex-1">
-                  <Link
-                    to={`/dashboard/reports/${r.id}`}
-                    className="text-sm font-medium text-gray-900 hover:text-brand"
-                  >
-                    {r.id.toUpperCase()} · {reasonLabels[r.reason]}
-                  </Link>
-                  <div className="truncate text-xs text-gray-500">
-                    {r.createdAt} · {r.description}
-                  </div>
-                </div>
-                <ReportStatusBadge status={r.status} />
-              </li>
-            ))}
-          </ul>
         </section>
-      )}
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
-        <div className="rounded-2xl border border-surface-border bg-surface-card">
-          <div className="border-b border-surface-border p-5">
-            <h2 className="text-base font-semibold text-gray-900">Order history</h2>
-            <p className="mt-1 text-xs text-gray-500">
-              All orders placed by this user.
-            </p>
-          </div>
-          <Table<Order>
-            className="dashboard-table"
-            rowKey="id"
-            columns={orderColumns}
-            dataSource={user.orders}
-            pagination={user.orders.length > 8 ? { pageSize: 8 } : false}
-            locale={{ emptyText: 'No orders yet.' }}
+        {/* Stats */}
+        <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <Stat label="Total orders" value={String(user.totalOrders)} icon={ShoppingBag} />
+          <Stat label="Total spent" value={currency.format(user.totalSpent)} icon={Wallet} />
+          <Stat
+            label="Avg. order value"
+            value={currency.format(Math.round(user.avgOrderValue))}
+            icon={TrendingUp}
           />
-        </div>
+          <Stat
+            label="Last order"
+            value={user.lastOrderDate ? new Date(user.lastOrderDate).toLocaleDateString() : '—'}
+            icon={ShoppingBag}
+          />
+        </section>
 
-        <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
-          <h2 className="text-base font-semibold text-gray-900">
-            Most ordered products
-          </h2>
-          <p className="mt-1 text-xs text-gray-500">
-            Top items by total quantity ordered.
-          </p>
-
-          {topProducts.length === 0 ? (
-            <div className="mt-6 rounded-xl border border-dashed border-surface-border p-6 text-center text-sm text-gray-500">
-              No products ordered yet.
+        {/* Order history */}
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
+          <div className="rounded-2xl border border-surface-border bg-surface-card">
+            <div className="border-b border-surface-border p-5">
+              <h2 className="text-base font-semibold text-gray-900">Order history</h2>
+              <p className="mt-1 text-xs text-gray-500">All orders placed by this user.</p>
             </div>
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {topProducts.map((p, idx) => (
-                <li
-                  key={p.productId}
-                  className="flex items-center gap-3 rounded-xl border border-surface-border bg-surface-elevated p-3"
-                >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-sm font-semibold text-brand">
-                    #{idx + 1}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-gray-900">
-                      {p.name}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {p.quantity} units · {currency.format(p.totalSpent)}
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
+            <Table<OrderRecord>
+              className="dashboard-table"
+              rowKey="_id"
+              columns={orderColumns}
+              dataSource={user.orderHistory as OrderRecord[]}
+              pagination={
+                (user.orderHistory?.length ?? 0) > 8 ? { pageSize: 8 } : false
+              }
+              locale={{ emptyText: 'No orders yet.' }}
+            />
+          </div>
 
-      <EditUserModal
-        user={editing ? user : null}
-        onClose={() => setEditing(false)}
-      />
-    </div>
+          {/* Most ordered products */}
+          <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
+            <h2 className="text-base font-semibold text-gray-900">
+              Most ordered products
+            </h2>
+            <p className="mt-1 text-xs text-gray-500">
+              Top items by total quantity ordered.
+            </p>
+
+            {(user.mostOrderedProducts?.length ?? 0) === 0 ? (
+              <div className="mt-6 rounded-xl border border-dashed border-surface-border p-6 text-center text-sm text-gray-500">
+                No products ordered yet.
+              </div>
+            ) : (
+              <ul className="mt-4 space-y-3">
+                {user.mostOrderedProducts.map((p: { _id?: string; name?: string; quantity?: number; totalSpent?: number }, idx: number) => (
+                  <li
+                    key={p._id ?? idx}
+                    className="flex items-center gap-3 rounded-xl border border-surface-border bg-surface-elevated p-3"
+                  >
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-sm font-semibold text-brand">
+                      #{idx + 1}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-gray-900">
+                        {p.name ?? 'Unknown product'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {p.quantity ?? 0} units · {currency.format(p.totalSpent ?? 0)}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+
+      </div>
+    </Spin>
   )
 }
+
+// ─── Helper Components ────────────────────────────────────────────────────────
 
 function ContactRow({
   icon: Icon,
@@ -383,9 +327,7 @@ function ContactRow({
         <Icon size={16} />
       </span>
       <div className="min-w-0">
-        <div className="text-xs uppercase tracking-wide text-gray-500">
-          {label}
-        </div>
+        <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
         <div className="truncate text-sm text-gray-900">{value}</div>
       </div>
     </div>

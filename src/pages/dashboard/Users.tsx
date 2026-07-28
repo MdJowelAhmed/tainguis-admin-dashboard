@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Table, Dropdown, Input, Select, App, Spin, Alert } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  Ban,
+
   CircleSlash,
   Eye,
   MoreHorizontal,
@@ -25,16 +24,34 @@ const currency = new Intl.NumberFormat('en-US', {
 
 export default function Users() {
   const { modal, message } = App.useApp()
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [page, setPage] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // ── Derive state from URL params ───────────────────────────────────────────
+  const search = searchParams.get('searchTerm') ?? ''
+  const statusFilter = (searchParams.get('status') ?? 'all') as StatusFilter
+  const page = Number(searchParams.get('page') ?? '1')
   const pageSize = 10
+
+  // ── Helper to update URL params ────────────────────────────────────────────
+  const updateParams = (updates: Record<string, string | null>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      Object.entries(updates).forEach(([k, v]) => {
+        if (v === null || v === '' || v === 'all') {
+          next.delete(k)
+        } else {
+          next.set(k, v)
+        }
+      })
+      return next
+    })
+  }
 
   // ── Build query params ─────────────────────────────────────────────────────
   const queryParams: GetUsersParams = {
     page,
     limit: pageSize,
-    ...(search.trim() ? { search: search.trim() } : {}),
+    ...(search.trim() ? { searchTerm: search.trim() } : {}),
     ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
   }
 
@@ -219,22 +236,7 @@ export default function Users() {
         </div>
       </header>
 
-      {/* Summary cards */}
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <SummaryCard label="Total users" value={counts.total} icon={UserCheck} />
-        <SummaryCard
-          label="Active"
-          value={counts.active}
-          icon={ShieldCheck}
-          tone="green"
-        />
-        <SummaryCard
-          label="Inactive"
-          value={counts.inactive}
-          icon={CircleSlash}
-          tone="amber"
-        />
-      </section>
+
 
       {/* Table */}
       <section className="rounded-2xl border border-surface-border bg-surface-card">
@@ -243,8 +245,7 @@ export default function Users() {
             allowClear
             value={search}
             onChange={(e) => {
-              setSearch(e.target.value)
-              setPage(1) // reset to page 1 on new search
+              updateParams({ searchTerm: e.target.value, page: null })
             }}
             placeholder="Search by name, email, or phone"
             prefix={<Search size={16} className="text-gray-400" />}
@@ -253,8 +254,7 @@ export default function Users() {
           <Select
             value={statusFilter}
             onChange={(val) => {
-              setStatusFilter(val)
-              setPage(1)
+              updateParams({ status: val, page: null })
             }}
             style={{ width: 160 }}
             options={[
@@ -279,7 +279,7 @@ export default function Users() {
               pageSize,
               total: pagination?.total ?? 0,
               showSizeChanger: false,
-              onChange: (p) => setPage(p),
+              onChange: (p) => updateParams({ page: String(p) }),
             }}
           />
         </Spin>
@@ -299,28 +299,4 @@ const toneStyles: Record<Tone, string> = {
   red: 'bg-red-100 text-red-700',
 }
 
-function SummaryCard({
-  label,
-  value,
-  icon: Icon,
-  tone = 'neutral',
-}: {
-  label: string
-  value: number
-  icon: typeof UserCheck
-  tone?: Tone
-}) {
-  return (
-    <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-gray-600">{label}</span>
-        <span
-          className={`flex h-8 w-8 items-center justify-center rounded-full ${toneStyles[tone]}`}
-        >
-          <Icon size={16} />
-        </span>
-      </div>
-      <div className="mt-3 text-2xl font-semibold text-gray-900">{value}</div>
-    </div>
-  )
-}
+
