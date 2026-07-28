@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #ffffff;
+  color: #111827;
+}
+
+.dashboard-table .ant-table {
+  background: transparent;
+}
+.dashboard-table .ant-table-thead > tr > th {
+  background: #f9fafb !important;
+  color: #111827 !important;
+  font-weight: 600;
+  border-bottom: 1px solid #e5e7eb !important;
+}
+.dashboard-table .ant-table-thead > tr > th::before {
+  display: none !important;
+}
+.dashboard-table .ant-table-tbody > tr > td {
+  background: transparent !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  color: #111827;
+}
+.dashboard-table .ant-table-tbody > tr:hover > td {
+  background: #f3f4f6 !important;
+}
+
+.add-promotion-modal .ant-modal-content {
+  background: #ffffff !important;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.tiptap-wrapper .ProseMirror {
+  min-height: 280px;
+  outline: none;
+}
+.tiptap-wrapper .ProseMirror > * + * {
+  margin-top: 0.75em;
+}
+.tiptap-wrapper .ProseMirror h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #111827;
+}
+.tiptap-wrapper .ProseMirror h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #111827;
+}
+.tiptap-wrapper .ProseMirror h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #111827;
+}
+.tiptap-wrapper .ProseMirror ul,
+.tiptap-wrapper .ProseMirror ol {
+  padding-left: 1.25rem;
+}
+.tiptap-wrapper .ProseMirror ul {
+  list-style: disc;
+}
+.tiptap-wrapper .ProseMirror ol {
+  list-style: decimal;
+}
+.tiptap-wrapper .ProseMirror blockquote {
+  border-left: 3px solid #FF5B03;
+  padding-left: 1rem;
+  color: #4b5563;
+  font-style: italic;
+}
+.tiptap-wrapper .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #9ca3af;
+  pointer-events: none;
+  height: 0;
+}
