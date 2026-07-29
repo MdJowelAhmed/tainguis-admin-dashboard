@@ -22,6 +22,7 @@ import {
   useGetLiveInChattingMessageQuery,
   type LiveProduct,
 } from '../../redux/api/liveShowApi'
+import { imageUrl } from '../../lib/imageUrl'
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -192,7 +193,7 @@ export default function LiveDetails() {
             <div className="flex items-start gap-4">
               <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-surface-elevated text-gray-400">
                 {stream.thumbnail ? (
-                  <img src={stream.thumbnail} alt={stream.title} className="h-full w-full object-cover" />
+                  <img src={imageUrl(stream.thumbnail)} alt={stream.title} className="h-full w-full object-cover" />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center">
                     {isAuction ? <Gavel size={26} /> : <Video size={26} />}
@@ -349,7 +350,7 @@ export default function LiveDetails() {
                             <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-900">
                               {m.sender?.profileImage && (
                                 <img
-                                  src={m.sender.profileImage}
+                                  src={imageUrl(m.sender.profileImage)}
                                   alt=""
                                   className="h-4 w-4 rounded-full object-cover"
                                 />
@@ -366,7 +367,7 @@ export default function LiveDetails() {
                         </p>
                         {m.image && (
                           <img
-                            src={m.image}
+                            src={imageUrl(m.image)}
                             alt="Chat attachment"
                             className="mt-2 max-h-24 rounded-lg border object-cover"
                           />

@@ -42,6 +42,7 @@ import { formatLabels as liveFormatLabels } from '../../components/live/liveData
 import { reasonLabels as reportReasonLabels } from '../../components/reports/reportsData'
 import type { OrderStatus, PaymentStatus } from '../../components/users/usersData'
 import type { ReportReason } from '../../components/reports/reportsData'
+import { imageUrl } from '../../lib/imageUrl'
 
 const numberFmt = new Intl.NumberFormat('en-US')
 
@@ -208,7 +209,7 @@ export default function DashboardOverview() {
                   >
                     {s.thumbnail ? (
                       <img
-                        src={s.thumbnail}
+                        src={imageUrl(s.thumbnail)}
                         alt={s.title}
                         className="h-10 w-10 shrink-0 rounded-lg object-cover"
                         onError={(e) => {

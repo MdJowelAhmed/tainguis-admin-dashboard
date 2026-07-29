@@ -31,6 +31,7 @@ import type {
   OrderStatus,
   PaymentStatus,
 } from '../../components/users/usersData'
+import { imageUrl } from '../../lib/imageUrl'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -324,7 +325,7 @@ export default function OrderDetails() {
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-surface-elevated">
                       {img ? (
                         <img
-                          src={img}
+                          src={imageUrl(img)}
                           alt={title}
                           className="h-full w-full rounded-lg object-cover"
                           onError={(e) => {

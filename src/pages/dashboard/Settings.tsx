@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useGetProfileQuery, useUpdateProfileMutation } from '../../redux/api/authApi'
+import { imageUrl } from '../../lib/imageUrl'
 import { App, Input } from 'antd'
 import {
   Camera,
@@ -178,7 +180,7 @@ function ProfileSection() {
             <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-surface-elevated text-xl font-semibold text-gray-700">
               {avatar ? (
                 <img
-                  src={avatar}
+                  src={imageUrl(avatar)}
                   alt="Profile"
                   className="h-full w-full object-cover"
                 />

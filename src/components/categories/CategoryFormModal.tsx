@@ -1,33 +1,34 @@
 import { useEffect, useState } from 'react'
-import { App, Input, Modal, Upload } from 'antd'
+import { App, Input, Modal, Upload, Spin } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import type { RcFile, UploadFile } from 'antd/es/upload'
 import { Check, Pencil, Trash2, X } from 'lucide-react'
-import { createCategory, updateCategory } from './categoriesStore'
-import type { Category, Subcategory } from './categoriesData'
+import {
+  useCreateCategoryMutation,
+  useUpdateCategoryMutation,
+} from '../../redux/api/categoriesApi'
+import type { CategoryListItem } from '../../redux/api/categoriesApi'
+import { imageUrl } from '../../lib/imageUrl'
 
 type Mode = 'create' | 'edit'
 
 type Props = {
   open: boolean
   mode: Mode
-  category?: Category | null
+  category?: CategoryListItem | null
   onClose: () => void
 }
 
-type DraftSub = Subcategory & { isNew?: boolean }
+type DraftSub = {
+  id: string
+  name: string
+  isNew?: boolean
+}
 
 const emptyState = {
   name: '',
   image: '',
 }
-
-const getBase64 = (file: RcFile): Promise<string> =>
-  new Promise((resolve) => {
-    const reader = new FileReader()
-    reader.readAsDataURL(file)
-    reader.onload = () => resolve(reader.result as string)
-  })
 
 export default function CategoryFormModal({
   open,
@@ -36,9 +37,15 @@ export default function CategoryFormModal({
   onClose,
 }: Props) {
   const { message } = App.useApp()
+
+  const [createCategory, { isLoading: isCreating }] = useCreateCategoryMutation()
+  const [updateCategory, { isLoading: isUpdating }] = useUpdateCategoryMutation()
+
   const [name, setName] = useState(emptyState.name)
-  const [image, setImage] = useState(emptyState.image)
+  const [imagePreview, setImagePreview] = useState(emptyState.image)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileList, setFileList] = useState<UploadFile[]>([])
+
   const [subcategories, setSubcategories] = useState<DraftSub[]>([])
   const [newSubName, setNewSubName] = useState('')
   const [editingSubId, setEditingSubId] = useState<string | null>(null)
@@ -48,7 +55,8 @@ export default function CategoryFormModal({
     if (!open) return
     if (mode === 'edit' && category) {
       setName(category.name)
-      setImage(category.image || '')
+      setImagePreview(category.image ? imageUrl(category.image) : '')
+      setSelectedFile(null)
       setFileList(
         category.image
           ? [
@@ -56,15 +64,20 @@ export default function CategoryFormModal({
                 uid: '-1',
                 name: 'image.png',
                 status: 'done',
-                url: category.image,
+                url: imageUrl(category.image),
               },
             ]
           : [],
       )
-      setSubcategories(category.subcategories.map((s) => ({ ...s })))
+      const existingSubs = (category.subCategories || category.subcategories || []).map((s) => ({
+        id: s._id,
+        name: s.name,
+      }))
+      setSubcategories(existingSubs)
     } else {
       setName(emptyState.name)
-      setImage(emptyState.image)
+      setImagePreview(emptyState.image)
+      setSelectedFile(null)
       setFileList([])
       setSubcategories([])
     }
@@ -73,15 +86,16 @@ export default function CategoryFormModal({
     setEditingSubName('')
   }, [open, mode, category])
 
-  const handleImageChange = async (file: RcFile) => {
-    const base64 = await getBase64(file)
-    setImage(base64)
+  const handleBeforeUpload = (file: RcFile) => {
+    setSelectedFile(file)
+    const previewUrl = URL.createObjectURL(file)
+    setImagePreview(previewUrl)
     setFileList([
       {
-        uid: '-1',
+        uid: file.uid || String(Date.now()),
         name: file.name,
         status: 'done',
-        url: base64,
+        url: previewUrl,
       },
     ])
     return false
@@ -119,41 +133,32 @@ export default function CategoryFormModal({
     if (editingSubId === id) setEditingSubId(null)
   }
 
-  const submit = () => {
+  const submit = async () => {
     if (!name.trim()) return message.warning('Category name is required.')
 
-    const cleanedSubs: Subcategory[] = subcategories.map((s) => ({
-      id: s.isNew ? '' : s.id,
-      name: s.name,
-    }))
+    const formData = new FormData()
+    formData.append('name', name.trim())
 
-    if (mode === 'create') {
-      createCategory({
-        name: name.trim(),
-        description: '',
-        image: image || undefined,
-        status: 'active',
-        productsCount: 0,
-        subcategories: cleanedSubs,
-      })
-      message.success('Category created.')
-    } else if (category) {
-      const finalSubs: Subcategory[] = subcategories.map((s, i) =>
-        s.isNew
-          ? {
-              id: `sub_${category.id.replace('cat_', '')}_${Date.now()}_${i}`,
-              name: s.name,
-            }
-          : { id: s.id, name: s.name },
-      )
-      updateCategory(category.id, {
-        name: name.trim(),
-        image: image || undefined,
-        subcategories: finalSubs,
-      })
-      message.success('Category updated.')
+    if (selectedFile) {
+      formData.append('image', selectedFile)
     }
-    onClose()
+
+    const subNames = subcategories.map((s) => s.name.trim()).filter(Boolean)
+    formData.append('subCategories', JSON.stringify(subNames))
+
+    try {
+      if (mode === 'create') {
+        await createCategory(formData).unwrap()
+        message.success('Category created.')
+      } else if (category) {
+        await updateCategory({ id: category._id, formData }).unwrap()
+        message.success('Category updated.')
+      }
+      onClose()
+    } catch (err: any) {
+      const errMsg = err?.data?.message ?? 'Failed to save category.'
+      message.error(errMsg)
+    }
   }
 
   return (
@@ -163,123 +168,127 @@ export default function CategoryFormModal({
       okText={mode === 'create' ? 'Create category' : 'Save changes'}
       onOk={submit}
       onCancel={onClose}
+      confirmLoading={isCreating || isUpdating}
       width={560}
-      destroyOnHidden
+      destroyOnClose
     >
-      <div className="space-y-5">
-        <Field label="Category name">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Vegetables, Fruits, Dairy"
-          />
-        </Field>
+      <Spin spinning={isCreating || isUpdating}>
+        <div className="space-y-5 py-2">
+          <Field label="Category name">
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Phone, Gaming, Electronics"
+            />
+          </Field>
 
-        <Field label="Category image">
-          <Upload
-            listType="picture-card"
-            fileList={fileList}
-            beforeUpload={handleImageChange}
-            onRemove={() => {
-              setImage('')
-              setFileList([])
-            }}
-            maxCount={1}
-          >
-            {fileList.length < 1 && (
-              <div>
-                <PlusOutlined />
-                <div className="mt-2 text-xs">Upload Image</div>
+          <Field label="Category image">
+            <Upload
+              listType="picture-card"
+              fileList={fileList}
+              beforeUpload={handleBeforeUpload}
+              onRemove={() => {
+                setImagePreview('')
+                setSelectedFile(null)
+                setFileList([])
+              }}
+              maxCount={1}
+            >
+              {fileList.length < 1 && (
+                <div>
+                  <PlusOutlined />
+                  <div className="mt-2 text-xs">Upload Image</div>
+                </div>
+              )}
+            </Upload>
+          </Field>
+
+          <Field label={`Subcategories (${subcategories.length})`}>
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <Input
+                  value={newSubName}
+                  onChange={(e) => setNewSubName(e.target.value)}
+                  onPressEnter={addSub}
+                  placeholder="Add subcategory name (e.g. iPhone, Samsung)"
+                />
+                <button
+                  type="button"
+                  onClick={addSub}
+                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-brand px-3 text-xs font-semibold text-white hover:bg-brand-hover"
+                >
+                  Add
+                </button>
               </div>
-            )}
-          </Upload>
-        </Field>
 
-        <Field label={`Subcategories (${subcategories.length})`}>
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <Input
-                value={newSubName}
-                onChange={(e) => setNewSubName(e.target.value)}
-                onPressEnter={addSub}
-                placeholder="Add subcategory name"
-              />
-              <button
-                type="button"
-                onClick={addSub}
-                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-brand px-3 text-xs font-semibold text-white hover:bg-brand-hover"
-              >
-                Add
-              </button>
+              {subcategories.length === 0 ? (
+                <p className="text-xs text-gray-500">
+                  No subcategories yet. Add one above.
+                </p>
+              ) : (
+                <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
+                  {subcategories.map((s) => (
+                    <li
+                      key={s.id}
+                      className="flex items-center gap-2 px-3 py-2 text-sm"
+                    >
+                      {editingSubId === s.id ? (
+                        <>
+                          <Input
+                            autoFocus
+                            size="small"
+                            value={editingSubName}
+                            onChange={(e) => setEditingSubName(e.target.value)}
+                            onPressEnter={saveEditSub}
+                          />
+                          <button
+                            type="button"
+                            onClick={saveEditSub}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded text-green-600 hover:bg-green-50"
+                            aria-label="Save"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingSubId(null)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-50"
+                            aria-label="Cancel"
+                          >
+                            <X size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1 truncate text-gray-900">
+                            {s.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => beginEditSub(s)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+                            aria-label="Edit subcategory"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeSub(s.id)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded text-red-500 hover:bg-red-50"
+                            aria-label="Delete subcategory"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-
-            {subcategories.length === 0 ? (
-              <p className="text-xs text-gray-500">
-                No subcategories yet. Add one above.
-              </p>
-            ) : (
-              <ul className="divide-y divide-surface-border rounded-md border border-surface-border">
-                {subcategories.map((s) => (
-                  <li
-                    key={s.id}
-                    className="flex items-center gap-2 px-3 py-2 text-sm"
-                  >
-                    {editingSubId === s.id ? (
-                      <>
-                        <Input
-                          autoFocus
-                          size="small"
-                          value={editingSubName}
-                          onChange={(e) => setEditingSubName(e.target.value)}
-                          onPressEnter={saveEditSub}
-                        />
-                        <button
-                          type="button"
-                          onClick={saveEditSub}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-green-600 hover:bg-green-50"
-                          aria-label="Save"
-                        >
-                          <Check size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingSubId(null)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-50"
-                          aria-label="Cancel"
-                        >
-                          <X size={14} />
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <span className="flex-1 truncate text-gray-900">
-                          {s.name}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => beginEditSub(s)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-50 hover:text-gray-900"
-                          aria-label="Edit subcategory"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeSub(s.id)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-red-500 hover:bg-red-50"
-                          aria-label="Delete subcategory"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </Field>
-      </div>
+          </Field>
+        </div>
+      </Spin>
     </Modal>
   )
 }

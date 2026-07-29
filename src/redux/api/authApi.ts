@@ -223,5 +223,7 @@ export const {
   useResetPasswordMutation,
   useResendOtpMutation,
   useGetMyProfileQuery,
+  useGetMyProfileQuery: useGetProfileQuery,
   useUpdateMyProfileMutation,
+  useUpdateMyProfileMutation: useUpdateProfileMutation,
 } = authApi

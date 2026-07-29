@@ -18,6 +18,7 @@ import {
   type ReportStatus,
 } from '../../components/reports/reportsData'
 import ReportStatusBadge from '../../components/reports/ReportStatusBadge'
+import { imageUrl } from '../../lib/imageUrl'
 
 export default function Reports() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -92,7 +93,7 @@ export default function Reports() {
           >
             {u.profileImage ? (
               <img
-                src={u.profileImage}
+                src={imageUrl(u.profileImage)}
                 alt={u.name}
                 className="h-7 w-7 rounded-full object-cover"
                 onError={(e) => {

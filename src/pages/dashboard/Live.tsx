@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useGetAllLiveShowsQuery } from '../../redux/api/liveShowApi'
 import type { LiveShowListItem, GetLiveShowsParams } from '../../redux/api/liveShowApi'
+import { imageUrl } from '../../lib/imageUrl'
 import SearchInput from '../../components/ui/SearchInput'
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ export default function Live() {
           <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-surface-elevated">
             {s.thumbnail ? (
               <img
-                src={s.thumbnail}
+                src={imageUrl(s.thumbnail)}
                 alt={s.title}
                 className="h-full w-full object-cover"
               />
@@ -120,7 +121,7 @@ export default function Live() {
         <div className="flex items-center gap-2">
           {s.sellerInfo?.profileImage && (
             <img
-              src={s.sellerInfo.profileImage}
+              src={imageUrl(s.sellerInfo.profileImage)}
               alt={s.sellerInfo.name}
               className="h-7 w-7 rounded-full object-cover"
             />

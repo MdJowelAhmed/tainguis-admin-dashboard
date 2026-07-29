@@ -21,6 +21,7 @@ import {
   type AdminRole,
 } from '../../components/admins/adminsData'
 import AdminFormModal from '../../components/admins/AdminFormModal'
+import { imageUrl } from '../../lib/imageUrl'
 
 type StatusFilter = 'all' | 'active' | 'suspended'
 type RoleFilter = 'all' | AdminRole
@@ -123,7 +124,7 @@ export default function Admins() {
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-sm font-semibold text-gray-700">
               {profileImage ? (
                 <img
-                  src={profileImage}
+                  src={imageUrl(profileImage)}
                   alt={name}
                   className="h-full w-full rounded-full object-cover"
                   onError={(e) => {

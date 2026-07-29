@@ -15,6 +15,7 @@ import {
 import { useGetUserByIdQuery, useUpdateUserStatusMutation } from '../../redux/api/userApi'
 import type { UserStatus } from '../../redux/api/userApi'
 import StatusBadge from '../../components/users/StatusBadge'
+import { imageUrl } from '../../lib/imageUrl'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -175,7 +176,7 @@ export default function UserDetails() {
               <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-xl font-semibold text-gray-700">
                 {user.profileImage ? (
                   <img
-                    src={user.profileImage}
+                    src={imageUrl(user.profileImage)}
                     alt={user.name}
                     className="h-full w-full rounded-full object-cover"
                   />
