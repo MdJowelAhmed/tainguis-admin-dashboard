@@ -20,8 +20,6 @@ import type { CategoryListItem, SubCategoryItem, GetCategoriesParams } from '../
 import CategoryFormModal from '../../components/categories/CategoryFormModal'
 import { imageUrl } from '../../lib/imageUrl'
 
-type StatusFilter = 'all' | 'active' | 'inactive'
-
 const statusStyles: Record<string, string> = {
   active: 'bg-green-100 text-green-700 ring-green-200',
   inactive: 'bg-gray-100 text-gray-700 ring-gray-200',

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { useGetProfileQuery, useUpdateProfileMutation } from '../../redux/api/authApi'
 import { imageUrl } from '../../lib/imageUrl'
 import { App, Input } from 'antd'
 import {

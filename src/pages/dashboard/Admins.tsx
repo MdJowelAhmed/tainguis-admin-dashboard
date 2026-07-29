@@ -23,9 +23,6 @@ import {
 import AdminFormModal from '../../components/admins/AdminFormModal'
 import { imageUrl } from '../../lib/imageUrl'
 
-type StatusFilter = 'all' | 'active' | 'suspended'
-type RoleFilter = 'all' | AdminRole
-
 const roleStyles: Record<string, string> = {
   super_admin: 'bg-brand/10 text-brand ring-brand/20',
   manager: 'bg-blue-100 text-blue-700 ring-blue-200',

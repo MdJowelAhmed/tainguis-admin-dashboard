@@ -42,7 +42,6 @@ export default function CategoryFormModal({
   const [updateCategory, { isLoading: isUpdating }] = useUpdateCategoryMutation()
 
   const [name, setName] = useState(emptyState.name)
-  const [imagePreview, setImagePreview] = useState(emptyState.image)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileList, setFileList] = useState<UploadFile[]>([])
 
@@ -55,7 +54,6 @@ export default function CategoryFormModal({
     if (!open) return
     if (mode === 'edit' && category) {
       setName(category.name)
-      setImagePreview(category.image ? imageUrl(category.image) : '')
       setSelectedFile(null)
       setFileList(
         category.image
@@ -76,7 +74,6 @@ export default function CategoryFormModal({
       setSubcategories(existingSubs)
     } else {
       setName(emptyState.name)
-      setImagePreview(emptyState.image)
       setSelectedFile(null)
       setFileList([])
       setSubcategories([])
@@ -89,7 +86,6 @@ export default function CategoryFormModal({
   const handleBeforeUpload = (file: RcFile) => {
     setSelectedFile(file)
     const previewUrl = URL.createObjectURL(file)
-    setImagePreview(previewUrl)
     setFileList([
       {
         uid: file.uid || String(Date.now()),
@@ -188,7 +184,6 @@ export default function CategoryFormModal({
               fileList={fileList}
               beforeUpload={handleBeforeUpload}
               onRemove={() => {
-                setImagePreview('')
                 setSelectedFile(null)
                 setFileList([])
               }}
