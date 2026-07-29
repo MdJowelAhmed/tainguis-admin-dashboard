@@ -15,10 +15,13 @@ import {
 import {
   useGetReportByIdQuery,
   useGetReportsHistoryQuery,
+  useReportResolveMutation,
   useUpdateReportStatusMutation,
+  type ReportActionTaken,
 } from '../../redux/api/reportApi'
-import { reasonLabels, type ReportAction, type ReportReason } from '../../components/reports/reportsData'
+import { reasonLabels, type ReportReason } from '../../components/reports/reportsData'
 import ReportStatusBadge from '../../components/reports/ReportStatusBadge'
+import { imageUrl } from '../../lib/imageUrl'
 
 type ResolutionType = 'dismiss' | 'warning' | 'restrict' | 'ban'
 
@@ -28,44 +31,34 @@ const resolutionConfig: Record<
     title: string
     okText: string
     danger?: boolean
-    status: 'dismissed' | 'actioned'
-    action: ReportAction
-    affectsUser: 'none' | 'restricted' | 'banned'
+    actionTaken: ReportActionTaken
     description: string
   }
 > = {
   dismiss: {
     title: 'Dismiss report',
     okText: 'Dismiss report',
-    status: 'dismissed',
-    action: 'none',
-    affectsUser: 'none',
+    actionTaken: 'dismiss',
     description: 'No policy violation found. The reported user is not affected.',
   },
   warning: {
     title: 'Send warning',
     okText: 'Send warning',
-    status: 'actioned',
-    action: 'warning_sent',
-    affectsUser: 'none',
+    actionTaken: 'warning',
     description: 'A warning will be recorded against the user. Account access stays the same.',
   },
   restrict: {
     title: 'Restrict user',
     okText: 'Restrict user',
-    status: 'actioned',
-    action: 'restricted',
-    affectsUser: 'restricted',
-    description: 'The user can browse but cannot checkout or place new orders.',
+    actionTaken: 'inactive',
+    description: 'The user will be set to inactive.',
   },
   ban: {
     title: 'Ban user',
     okText: 'Ban user',
     danger: true,
-    status: 'actioned',
-    action: 'banned',
-    affectsUser: 'banned',
-    description: 'The user will lose access to sign in or use the platform.',
+    actionTaken: 'blocked',
+    description: 'The user will be blocked from accessing the platform.',
   },
 }
 
@@ -80,6 +73,7 @@ export default function ReportDetails() {
   const { data: historyRes } = useGetReportsHistoryQuery(id!, { skip: !id })
   const historyList = historyRes?.data ?? []
 
+  const [reportResolve, { isLoading: isResolving }] = useReportResolveMutation()
   const [updateReportStatus, { isLoading: isUpdating }] = useUpdateReportStatusMutation()
 
   const [resolutionType, setResolutionType] = useState<ResolutionType | null>(null)
@@ -127,21 +121,19 @@ export default function ReportDetails() {
     }
 
     try {
-      await updateReportStatus({
+      await reportResolve({
         id: report._id,
-        status: cfg.status,
-        action: cfg.action,
-        adminNote: note.trim(),
+        data: {
+          actionTaken: cfg.actionTaken,
+          adminNote: note.trim(),
+        },
       }).unwrap()
 
-      message.success(
-        cfg.affectsUser === 'none'
-          ? `Report ${cfg.status}.`
-          : `Report actioned. ${reported?.name ?? 'User'} is now ${cfg.affectsUser}.`,
-      )
+      message.success('Report resolved successfully.')
       setResolutionType(null)
-    } catch {
-      message.error('Failed to update report status.')
+    } catch (err: any) {
+      const errMsg = err?.data?.message ?? 'Failed to resolve report.'
+      message.error(errMsg)
     }
   }
 
@@ -168,7 +160,7 @@ export default function ReportDetails() {
   const reasonText = reasonLabels[report.reason as ReportReason] || report.reason.replace(/_/g, ' ')
 
   return (
-    <Spin spinning={isUpdating}>
+    <Spin spinning={isResolving || isUpdating}>
       <div className="flex flex-col gap-6 py-6">
         <div>
           <button
@@ -248,6 +240,13 @@ export default function ReportDetails() {
                   to={`/dashboard/users/${reported._id}`}
                   className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900 hover:text-brand"
                 >
+                  {reported.profileImage && (
+                    <img
+                      src={imageUrl(reported.profileImage)}
+                      alt={reported.name}
+                      className="h-5 w-5 rounded-full object-cover"
+                    />
+                  )}
                   {reported.name}
                   <ExternalLink size={12} />
                 </Link>
@@ -292,7 +291,7 @@ export default function ReportDetails() {
                     Action taken
                   </div>
                   <div className="mt-1 text-sm font-medium text-gray-900 capitalize">
-                    {report.action?.replace('_', ' ') ?? '—'}
+                    {report.actionTaken || report.action?.replace('_', ' ') || '—'}
                   </div>
                 </div>
                 <div>
@@ -308,7 +307,7 @@ export default function ReportDetails() {
                     Resolved at
                   </div>
                   <div className="mt-1 text-sm text-gray-800">
-                    {report.resolvedAt ? new Date(report.resolvedAt).toLocaleString() : '—'}
+                    {report.updatedAt ? new Date(report.updatedAt).toLocaleString() : '—'}
                   </div>
                 </div>
               </div>

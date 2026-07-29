@@ -2,6 +2,13 @@ import { baseApi } from '../baseApi'
 
 // ─── Interfaces & Types ───────────────────────────────────────────────────────
 
+export type ReportActionTaken = 'dismiss' | 'warning' | 'blocked' | 'inactive'
+
+export interface ResolveReportPayload {
+  actionTaken: ReportActionTaken
+  adminNote: string
+}
+
 export interface ReportUserRef {
   _id: string
   name: string
@@ -20,6 +27,7 @@ export interface ReportListItem {
   createdAt: string
   updatedAt: string
   action?: string
+  actionTaken?: ReportActionTaken | string
   adminNote?: string
   resolvedAt?: string
   resolvedBy?: string
@@ -131,6 +139,19 @@ const reportApi = baseApi.injectEndpoints({
         { type: 'Dashboard' },
       ],
     }),
+
+    reportResolve: builder.mutation<ApiResponse, { id: string; data: ResolveReportPayload }>({
+      query: ({ id, data }) => ({
+        url: `/reports/${id}/resolve`,
+        method: 'PATCH',
+        body: data,
+      }),
+      invalidatesTags: (_result, _error, { id }) => [
+        { type: 'Report', id },
+        { type: 'Report', id: 'LIST' },
+        { type: 'Dashboard' },
+      ],
+    }),
   }),
   overrideExisting: false,
 })
@@ -140,4 +161,5 @@ export const {
   useGetReportByIdQuery,
   useGetReportsHistoryQuery,
   useUpdateReportStatusMutation,
+  useReportResolveMutation,
 } = reportApi
