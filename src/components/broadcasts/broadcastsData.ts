@@ -3,6 +3,7 @@ export type BroadcastType = 'announcement' | 'warning' | 'promo' | 'info'
 export type BroadcastChannel = 'in_app' | 'email' | 'push'
 
 export type BroadcastAudience =
+  | 'all_users'
   | 'all'
   | 'active'
   | 'restricted'
@@ -39,7 +40,8 @@ export const channelLabels: Record<BroadcastChannel, string> = {
   push: 'Push',
 }
 
-export const audienceLabels: Record<BroadcastAudience, string> = {
+export const audienceLabels: Record<string, string> = {
+  all_users: 'All Users',
   all: 'All Users',
   active: 'Active users only',
   restricted: 'Restricted users',
