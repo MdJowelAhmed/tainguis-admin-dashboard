@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { App, Input, Modal } from 'antd'
+import { App, Input, Modal, Spin, Alert } from 'antd'
 import {
   ArrowLeft,
   Ban,
@@ -12,9 +12,12 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react'
-import { reopenReport, resolveReport, useReport, useReportsAgainst } from '../../components/reports/reportsStore'
-import { reasonLabels, type ReportAction } from '../../components/reports/reportsData'
-import { setUserStatus, useUser } from '../../components/users/usersStore'
+import {
+  useGetReportByIdQuery,
+  useGetReportsHistoryQuery,
+  useUpdateReportStatusMutation,
+} from '../../redux/api/reportApi'
+import { reasonLabels, type ReportAction, type ReportReason } from '../../components/reports/reportsData'
 import ReportStatusBadge from '../../components/reports/ReportStatusBadge'
 
 type ResolutionType = 'dismiss' | 'warning' | 'restrict' | 'ban'
@@ -68,21 +71,35 @@ const resolutionConfig: Record<
 
 export default function ReportDetails() {
   const { id } = useParams<{ id: string }>()
-  const report = useReport(id)
-  const reporter = useUser(report?.reporterId)
-  const reported = useUser(report?.reportedUserId)
-  const otherReports = useReportsAgainst(report?.reportedUserId)
   const navigate = useNavigate()
   const { message, modal } = App.useApp()
 
-  const [resolutionType, setResolutionType] =
-    useState<ResolutionType | null>(null)
+  const { data: reportRes, isLoading: isLoadingReport, isError, error } = useGetReportByIdQuery(id!, { skip: !id })
+  const report = reportRes?.data
+
+  const { data: historyRes } = useGetReportsHistoryQuery(id!, { skip: !id })
+  const historyList = historyRes?.data ?? []
+
+  const [updateReportStatus, { isLoading: isUpdating }] = useUpdateReportStatusMutation()
+
+  const [resolutionType, setResolutionType] = useState<ResolutionType | null>(null)
   const [note, setNote] = useState('')
 
-  if (!report) {
+  if (isLoadingReport) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Spin size="large" tip="Loading report details…" />
+      </div>
+    )
+  }
+
+  if (isError || !report) {
+    const errMsg =
+      (error as { data?: { message?: string } })?.data?.message ??
+      'Report not found.'
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-        <p className="text-base text-gray-700">Report not found.</p>
+        <Alert type="error" message={errMsg} showIcon />
         <Link
           to="/dashboard/reports"
           className="text-sm font-medium text-brand hover:underline"
@@ -93,282 +110,296 @@ export default function ReportDetails() {
     )
   }
 
+  const reporter = report.reporter
+  const reported = report.reportedUser
+
   const openResolution = (type: ResolutionType) => {
     setResolutionType(type)
     setNote('')
   }
 
-  const submitResolution = () => {
+  const submitResolution = async () => {
     if (!resolutionType || !report) return
     const cfg = resolutionConfig[resolutionType]
     if (!note.trim()) {
       message.warning('Please add a note explaining the decision.')
       return
     }
-    resolveReport(report.id, cfg.status, cfg.action, note.trim())
-    if (cfg.affectsUser !== 'none' && reported) {
-      setUserStatus(reported.id, cfg.affectsUser, note.trim())
+
+    try {
+      await updateReportStatus({
+        id: report._id,
+        status: cfg.status,
+        action: cfg.action,
+        adminNote: note.trim(),
+      }).unwrap()
+
+      message.success(
+        cfg.affectsUser === 'none'
+          ? `Report ${cfg.status}.`
+          : `Report actioned. ${reported?.name ?? 'User'} is now ${cfg.affectsUser}.`,
+      )
+      setResolutionType(null)
+    } catch {
+      message.error('Failed to update report status.')
     }
-    message.success(
-      cfg.affectsUser === 'none'
-        ? `Report ${cfg.status}.`
-        : `Report actioned. ${reported?.name} is now ${cfg.affectsUser}.`,
-    )
-    setResolutionType(null)
   }
 
   const handleReopen = () => {
     modal.confirm({
       title: 'Reopen this report?',
       content:
-        'The report will go back to the pending queue. User status (if changed) is not automatically restored.',
+        'The report will go back to the pending queue.',
       okText: 'Reopen',
-      onOk: () => {
-        reopenReport(report.id)
-        message.success('Report reopened.')
+      onOk: async () => {
+        try {
+          await updateReportStatus({ id: report._id, status: 'pending' }).unwrap()
+          message.success('Report reopened.')
+        } catch {
+          message.error('Failed to reopen report.')
+        }
       },
     })
   }
 
   const isResolved = report.status !== 'pending'
   const cfg = resolutionType ? resolutionConfig[resolutionType] : null
-  const otherPending = otherReports.filter(
-    (r) => r.id !== report.id && r.status === 'pending',
-  ).length
+
+  const reasonText = reasonLabels[report.reason as ReportReason] || report.reason.replace(/_/g, ' ')
 
   return (
-    <div className="flex flex-col gap-6 py-6">
-      <div>
-        <button
-          type="button"
-          onClick={() => navigate('/dashboard/reports')}
-          className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
-        >
-          <ArrowLeft size={16} />
-          Back to reports
-        </button>
-      </div>
-
-      <section className="rounded-2xl border border-surface-border bg-surface-card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold text-gray-900">
-                {report.id.toUpperCase()}
-              </h1>
-              <ReportStatusBadge status={report.status} />
-            </div>
-            <p className="mt-1 text-sm text-gray-500">
-              Filed {report.createdAt}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {!isResolved ? (
-              <>
-                <ActionButton
-                  icon={X}
-                  label="Dismiss"
-                  variant="ghost"
-                  onClick={() => openResolution('dismiss')}
-                />
-                <ActionButton
-                  icon={MessageSquareWarning}
-                  label="Send warning"
-                  variant="amber-outline"
-                  onClick={() => openResolution('warning')}
-                />
-                <ActionButton
-                  icon={CircleSlash}
-                  label="Restrict user"
-                  variant="amber"
-                  onClick={() => openResolution('restrict')}
-                />
-                <ActionButton
-                  icon={Ban}
-                  label="Ban user"
-                  variant="danger"
-                  onClick={() => openResolution('ban')}
-                />
-              </>
-            ) : (
-              <ActionButton
-                icon={RotateCcw}
-                label="Reopen report"
-                variant="ghost"
-                onClick={handleReopen}
-              />
-            )}
-          </div>
+    <Spin spinning={isUpdating}>
+      <div className="flex flex-col gap-6 py-6">
+        <div>
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard/reports')}
+            className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"
+          >
+            <ArrowLeft size={16} />
+            Back to reports
+          </button>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Field label="Reason">
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-surface-elevated px-2.5 py-1 text-sm font-medium text-gray-800">
-              <Flag size={14} />
-              {reasonLabels[report.reason]}
-            </span>
-          </Field>
-
-          <Field label="Reported user">
-            {reported ? (
-              <Link
-                to={`/dashboard/users/${reported.id}`}
-                className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900 hover:text-brand"
-              >
-                {reported.name}
-                <ExternalLink size={12} />
-              </Link>
-            ) : (
-              <span className="text-sm text-gray-500">Unknown</span>
-            )}
-          </Field>
-
-          <Field label="Reporter">
-            {reporter ? (
-              <Link
-                to={`/dashboard/users/${reporter.id}`}
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-800 hover:text-brand"
-              >
-                {reporter.name}
-                <ExternalLink size={12} />
-              </Link>
-            ) : (
-              <span className="text-sm text-gray-500">Unknown</span>
-            )}
-          </Field>
-        </div>
-
-        <div className="mt-6">
-          <div className="text-xs uppercase tracking-wide text-gray-500">
-            Description
-          </div>
-          <p className="mt-2 whitespace-pre-line rounded-xl border border-surface-border bg-surface-elevated p-4 text-sm text-gray-800">
-            {report.description}
-          </p>
-        </div>
-
-        {isResolved && (
-          <div className="mt-6 rounded-xl border border-surface-border bg-surface-elevated p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-              <ShieldCheck size={16} className="text-brand" />
-              Resolution
-            </div>
-            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">
-                  Action taken
-                </div>
-                <div className="mt-1 text-sm font-medium text-gray-900 capitalize">
-                  {report.action?.replace('_', ' ') ?? '—'}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">
-                  Resolved by
-                </div>
-                <div className="mt-1 text-sm text-gray-800">
-                  {report.resolvedBy ?? '—'}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">
-                  Resolved at
-                </div>
-                <div className="mt-1 text-sm text-gray-800">
-                  {report.resolvedAt ?? '—'}
-                </div>
-              </div>
-            </div>
-            {report.adminNote && (
-              <div className="mt-3">
-                <div className="text-xs uppercase tracking-wide text-gray-500">
-                  Admin note
-                </div>
-                <p className="mt-1 text-sm text-gray-800">{report.adminNote}</p>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {reported && (
         <section className="rounded-2xl border border-surface-border bg-surface-card p-6">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 className="text-base font-semibold text-gray-900">
-                History for {reported.name}
-              </h2>
-              <p className="mt-1 text-xs text-gray-500">
-                {otherReports.length} total report
-                {otherReports.length === 1 ? '' : 's'} against this user
-                {otherPending > 0 && ` · ${otherPending} other pending`}
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-semibold text-gray-900 uppercase">
+                  {report.reportCode || report._id}
+                </h1>
+                <ReportStatusBadge status={report.status as any} />
+              </div>
+              <p className="mt-1 text-sm text-gray-500">
+                Filed {new Date(report.createdAt).toLocaleString()}
               </p>
             </div>
-            <Link
-              to={`/dashboard/users/${reported.id}`}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline"
-            >
-              View profile
-              <ExternalLink size={12} />
-            </Link>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {!isResolved ? (
+                <>
+                  <ActionButton
+                    icon={X}
+                    label="Dismiss"
+                    variant="ghost"
+                    onClick={() => openResolution('dismiss')}
+                  />
+                  <ActionButton
+                    icon={MessageSquareWarning}
+                    label="Send warning"
+                    variant="amber-outline"
+                    onClick={() => openResolution('warning')}
+                  />
+                  <ActionButton
+                    icon={CircleSlash}
+                    label="Restrict user"
+                    variant="amber"
+                    onClick={() => openResolution('restrict')}
+                  />
+                  <ActionButton
+                    icon={Ban}
+                    label="Ban user"
+                    variant="danger"
+                    onClick={() => openResolution('ban')}
+                  />
+                </>
+              ) : (
+                <ActionButton
+                  icon={RotateCcw}
+                  label="Reopen report"
+                  variant="ghost"
+                  onClick={handleReopen}
+                />
+              )}
+            </div>
           </div>
 
-          {otherReports.length <= 1 ? (
-            <p className="mt-4 text-sm text-gray-500">
-              No prior reports against this user.
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <Field label="Reason">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-surface-elevated px-2.5 py-1 text-sm font-medium text-gray-800 capitalize">
+                <Flag size={14} />
+                {reasonText}
+              </span>
+            </Field>
+
+            <Field label="Reported user">
+              {reported ? (
+                <Link
+                  to={`/dashboard/users/${reported._id}`}
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900 hover:text-brand"
+                >
+                  {reported.name}
+                  <ExternalLink size={12} />
+                </Link>
+              ) : (
+                <span className="text-sm text-gray-500">Unknown</span>
+              )}
+            </Field>
+
+            <Field label="Reporter">
+              {reporter ? (
+                <Link
+                  to={`/dashboard/users/${reporter._id}`}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-800 hover:text-brand"
+                >
+                  {reporter.name}
+                  <ExternalLink size={12} />
+                </Link>
+              ) : (
+                <span className="text-sm text-gray-500">Unknown</span>
+              )}
+            </Field>
+          </div>
+
+          <div className="mt-6">
+            <div className="text-xs uppercase tracking-wide text-gray-500">
+              Description
+            </div>
+            <p className="mt-2 whitespace-pre-line rounded-xl border border-surface-border bg-surface-elevated p-4 text-sm text-gray-800">
+              {report.description}
             </p>
-          ) : (
+          </div>
+
+          {isResolved && (
+            <div className="mt-6 rounded-xl border border-surface-border bg-surface-elevated p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                <ShieldCheck size={16} className="text-brand" />
+                Resolution
+              </div>
+              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-gray-500">
+                    Action taken
+                  </div>
+                  <div className="mt-1 text-sm font-medium text-gray-900 capitalize">
+                    {report.action?.replace('_', ' ') ?? '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-gray-500">
+                    Resolved by
+                  </div>
+                  <div className="mt-1 text-sm text-gray-800">
+                    {report.resolvedBy ?? '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-gray-500">
+                    Resolved at
+                  </div>
+                  <div className="mt-1 text-sm text-gray-800">
+                    {report.resolvedAt ? new Date(report.resolvedAt).toLocaleString() : '—'}
+                  </div>
+                </div>
+              </div>
+              {report.adminNote && (
+                <div className="mt-3">
+                  <div className="text-xs uppercase tracking-wide text-gray-500">
+                    Admin note
+                  </div>
+                  <p className="mt-1 text-sm text-gray-800">{report.adminNote}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* User Reports History Section */}
+        {historyList.length > 0 && (
+          <section className="rounded-2xl border border-surface-border bg-surface-card p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">
+                  Reports History for {reported?.name ?? 'User'}
+                </h2>
+                <p className="mt-1 text-xs text-gray-500">
+                  {historyList.length} report{historyList.length === 1 ? '' : 's'} recorded in history
+                </p>
+              </div>
+              {reported && (
+                <Link
+                  to={`/dashboard/users/${reported._id}`}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline"
+                >
+                  View profile
+                  <ExternalLink size={12} />
+                </Link>
+              )}
+            </div>
+
             <ul className="mt-4 divide-y divide-surface-border">
-              {otherReports
-                .filter((r) => r.id !== report.id)
-                .map((r) => (
-                  <li key={r.id} className="flex items-center gap-3 py-3">
+              {historyList.map((item) => {
+                const itemReason = reasonLabels[item.reason as ReportReason] || item.reason.replace(/_/g, ' ')
+                return (
+                  <li key={item._id} className="flex items-center gap-3 py-3">
                     <Flag size={14} className="text-gray-500" />
                     <div className="min-w-0 flex-1">
                       <Link
-                        to={`/dashboard/reports/${r.id}`}
-                        className="text-sm font-medium text-gray-900 hover:text-brand"
+                        to={`/dashboard/reports/${item._id}`}
+                        className="text-sm font-medium text-gray-900 hover:text-brand capitalize"
                       >
-                        {r.id.toUpperCase()} · {reasonLabels[r.reason]}
+                        {item.reportCode || item._id.slice(-6)} · {itemReason}
                       </Link>
-                      <div className="text-xs text-gray-500">{r.createdAt}</div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(item.createdAt).toLocaleDateString()}
+                      </div>
                     </div>
-                    <ReportStatusBadge status={r.status} />
+                    <ReportStatusBadge status={item.status as any} />
                   </li>
-                ))}
+                )
+              })}
             </ul>
-          )}
-        </section>
-      )}
-
-      <Modal
-        open={!!resolutionType}
-        title={cfg?.title}
-        okText={cfg?.okText}
-        okButtonProps={cfg?.danger ? { danger: true } : undefined}
-        onOk={submitResolution}
-        onCancel={() => setResolutionType(null)}
-        destroyOnClose
-      >
-        {cfg && (
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600">{cfg.description}</p>
-            <div>
-              <div className="mb-2 text-sm font-medium text-gray-900">
-                Admin note (required)
-              </div>
-              <Input.TextArea
-                rows={4}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Explain the decision so other moderators have context."
-              />
-            </div>
-          </div>
+          </section>
         )}
-      </Modal>
-    </div>
+
+        <Modal
+          open={!!resolutionType}
+          title={cfg?.title}
+          okText={cfg?.okText}
+          okButtonProps={cfg?.danger ? { danger: true } : undefined}
+          onOk={submitResolution}
+          onCancel={() => setResolutionType(null)}
+          destroyOnClose
+        >
+          {cfg && (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">{cfg.description}</p>
+              <div>
+                <div className="mb-2 text-sm font-medium text-gray-900">
+                  Admin note (required)
+                </div>
+                <Input.TextArea
+                  rows={4}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Explain the decision so other moderators have context."
+                />
+              </div>
+            </div>
+          )}
+        </Modal>
+      </div>
+    </Spin>
   )
 }
 
@@ -422,4 +453,3 @@ function ActionButton({
     </button>
   )
 }
-

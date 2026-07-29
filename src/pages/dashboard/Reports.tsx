@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Input, Select, Table } from 'antd'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Input, Select, Table, Spin, Alert } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   AlertTriangle,
@@ -11,71 +10,72 @@ import {
   Search,
   ShieldAlert,
 } from 'lucide-react'
-import { useReports } from '../../components/reports/reportsStore'
+import { useGetAllReportsQuery } from '../../redux/api/reportApi'
+import type { ReportListItem, GetReportsParams } from '../../redux/api/reportApi'
 import {
   reasonLabels,
-  type Report,
   type ReportReason,
   type ReportStatus,
 } from '../../components/reports/reportsData'
-import { useUsers } from '../../components/users/usersStore'
 import ReportStatusBadge from '../../components/reports/ReportStatusBadge'
 
-type StatusFilter = 'all' | ReportStatus
-type ReasonFilter = 'all' | ReportReason
-
 export default function Reports() {
-  const reports = useReports()
-  const users = useUsers()
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [reasonFilter, setReasonFilter] = useState<ReasonFilter>('all')
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const userById = useMemo(
-    () => new Map(users.map((u) => [u.id, u])),
-    [users],
-  )
+  const search = searchParams.get('searchTerm') ?? ''
+  const statusFilter = searchParams.get('status') ?? 'all'
+  const reasonFilter = searchParams.get('reason') ?? 'all'
+  const page = Number(searchParams.get('page') ?? '1')
+  const pageSize = 10
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return reports.filter((r) => {
-      if (statusFilter !== 'all' && r.status !== statusFilter) return false
-      if (reasonFilter !== 'all' && r.reason !== reasonFilter) return false
-      if (!q) return true
-      const reporter = userById.get(r.reporterId)?.name.toLowerCase() ?? ''
-      const reported = userById.get(r.reportedUserId)?.name.toLowerCase() ?? ''
-      return (
-        reporter.includes(q) ||
-        reported.includes(q) ||
-        r.description.toLowerCase().includes(q) ||
-        r.id.toLowerCase().includes(q)
-      )
+  const updateParams = (updates: Record<string, string | null>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      Object.entries(updates).forEach(([k, v]) => {
+        if (v === null || v === '' || v === 'all') {
+          next.delete(k)
+        } else {
+          next.set(k, v)
+        }
+      })
+      return next
     })
-  }, [reports, search, statusFilter, reasonFilter, userById])
+  }
 
-  const counts = useMemo(
-    () => ({
-      total: reports.length,
-      pending: reports.filter((r) => r.status === 'pending').length,
-      actioned: reports.filter((r) => r.status === 'actioned').length,
-      dismissed: reports.filter((r) => r.status === 'dismissed').length,
-    }),
-    [reports],
-  )
+  // ── Queries ────────────────────────────────────────────────────────────────
+  const queryParams: GetReportsParams = {
+    page,
+    limit: pageSize,
+    ...(search.trim() ? { searchTerm: search.trim() } : {}),
+    ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
+    ...(reasonFilter !== 'all' ? { reason: reasonFilter } : {}),
+  }
 
-  const columns: ColumnsType<Report> = [
+  const { data: reportsRes, isLoading, isError, error } = useGetAllReportsQuery(queryParams)
+
+  const reports = reportsRes?.data ?? []
+  const pagination = reportsRes?.pagination
+
+  // Calculate summary counts from fetched results / pagination
+  const pendingCount = reports.filter((r) => r.status === 'pending').length
+  const actionedCount = reports.filter((r) => r.status === 'actioned').length
+  const dismissedCount = reports.filter((r) => r.status === 'dismissed').length
+
+  const columns: ColumnsType<ReportListItem> = [
     {
       title: 'Report',
       key: 'id',
       render: (_, r) => (
         <div>
           <Link
-            to={`/dashboard/reports/${r.id}`}
-            className="text-sm font-semibold text-gray-900 hover:text-brand"
+            to={`/dashboard/reports/${r._id}`}
+            className="text-sm font-semibold text-gray-900 hover:text-brand uppercase"
           >
-            {r.id.toUpperCase()}
+            {r.reportCode || r._id.slice(-6)}
           </Link>
-          <div className="text-xs text-gray-500">{r.createdAt}</div>
+          <div className="text-xs text-gray-500">
+            {new Date(r.createdAt).toLocaleDateString()}
+          </div>
         </div>
       ),
     },
@@ -83,16 +83,27 @@ export default function Reports() {
       title: 'Reported user',
       key: 'reported',
       render: (_, r) => {
-        const u = userById.get(r.reportedUserId)
+        const u = r.reportedUser
         if (!u) return <span className="text-sm text-gray-500">Unknown</span>
         return (
           <Link
-            to={`/dashboard/users/${u.id}`}
+            to={`/dashboard/users/${u._id}`}
             className="flex items-center gap-2 text-sm text-gray-900 hover:text-brand"
           >
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-elevated text-xs font-semibold text-gray-700">
-              {u.name.charAt(0)}
-            </span>
+            {u.profileImage ? (
+              <img
+                src={u.profileImage}
+                alt={u.name}
+                className="h-7 w-7 rounded-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none'
+                }}
+              />
+            ) : (
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-elevated text-xs font-semibold text-gray-700">
+                {u.name.charAt(0)}
+              </span>
+            )}
             <span className="truncate">{u.name}</span>
           </Link>
         )
@@ -102,11 +113,11 @@ export default function Reports() {
       title: 'Reporter',
       key: 'reporter',
       render: (_, r) => {
-        const u = userById.get(r.reporterId)
+        const u = r.reporter
         if (!u) return <span className="text-sm text-gray-500">Unknown</span>
         return (
           <Link
-            to={`/dashboard/users/${u.id}`}
+            to={`/dashboard/users/${u._id}`}
             className="text-sm text-gray-700 hover:text-brand"
           >
             {u.name}
@@ -118,12 +129,15 @@ export default function Reports() {
       title: 'Reason',
       dataIndex: 'reason',
       key: 'reason',
-      render: (reason: ReportReason) => (
-        <span className="inline-flex items-center gap-1.5 rounded-md bg-surface-elevated px-2 py-1 text-xs font-medium text-gray-700">
-          <Flag size={12} />
-          {reasonLabels[reason]}
-        </span>
-      ),
+      render: (reason: string) => {
+        const labelText = reasonLabels[reason as ReportReason] || reason.replace(/_/g, ' ')
+        return (
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-surface-elevated px-2 py-1 text-xs font-medium text-gray-700 capitalize">
+            <Flag size={12} />
+            {labelText}
+          </span>
+        )
+      },
     },
     {
       title: 'Description',
@@ -138,7 +152,7 @@ export default function Reports() {
     {
       title: 'Status',
       key: 'status',
-      render: (_, r) => <ReportStatusBadge status={r.status} />,
+      render: (_, r) => <ReportStatusBadge status={r.status as ReportStatus} />,
     },
     {
       title: '',
@@ -147,7 +161,7 @@ export default function Reports() {
       width: 60,
       render: (_, r) => (
         <Link
-          to={`/dashboard/reports/${r.id}`}
+          to={`/dashboard/reports/${r._id}`}
           className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-surface-elevated hover:text-gray-900"
           aria-label="Review report"
         >
@@ -156,6 +170,17 @@ export default function Reports() {
       ),
     },
   ]
+
+  if (isError) {
+    const errMsg =
+      (error as { data?: { message?: string } })?.data?.message ??
+      'Failed to load reports.'
+    return (
+      <div className="py-6">
+        <Alert type="error" message={errMsg} showIcon />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6 py-6">
@@ -166,41 +191,43 @@ export default function Reports() {
         </p>
       </header>
 
+      {/* Summary Cards */}
       <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <SummaryCard label="Total reports" value={counts.total} icon={Flag} />
+        <SummaryCard label="Total reports" value={pagination?.total ?? reports.length} icon={Flag} />
         <SummaryCard
           label="Pending"
-          value={counts.pending}
+          value={pendingCount}
           icon={Clock}
           tone="amber"
         />
         <SummaryCard
           label="Actioned"
-          value={counts.actioned}
+          value={actionedCount}
           icon={ShieldAlert}
           tone="red"
         />
         <SummaryCard
           label="Dismissed"
-          value={counts.dismissed}
+          value={dismissedCount}
           icon={CheckCircle2}
           tone="neutral"
         />
       </section>
 
+      {/* Main Table */}
       <section className="rounded-2xl border border-surface-border bg-surface-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-surface-border p-4">
           <Input
             allowClear
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => updateParams({ searchTerm: e.target.value, page: null })}
             placeholder="Search by user, report id, or description"
             prefix={<Search size={16} className="text-gray-400" />}
             className="max-w-[320px]"
           />
           <Select
             value={statusFilter}
-            onChange={setStatusFilter}
+            onChange={(val) => updateParams({ status: val, page: null })}
             style={{ width: 160 }}
             options={[
               { value: 'all', label: 'All statuses' },
@@ -211,7 +238,7 @@ export default function Reports() {
           />
           <Select
             value={reasonFilter}
-            onChange={setReasonFilter}
+            onChange={(val) => updateParams({ reason: val, page: null })}
             style={{ width: 200 }}
             options={[
               { value: 'all', label: 'All reasons' },
@@ -222,17 +249,25 @@ export default function Reports() {
             ]}
           />
           <span className="ml-auto text-xs text-gray-500">
-            Showing {filtered.length} of {reports.length}
+            {pagination ? `${pagination.total} total reports` : ''}
           </span>
         </div>
 
-        <Table<Report>
-          className="dashboard-table"
-          rowKey="id"
-          columns={columns}
-          dataSource={filtered}
-          pagination={{ pageSize: 8, showSizeChanger: false }}
-        />
+        <Spin spinning={isLoading}>
+          <Table<ReportListItem>
+            className="dashboard-table"
+            rowKey="_id"
+            columns={columns}
+            dataSource={reports}
+            pagination={{
+              current: page,
+              pageSize,
+              total: pagination?.total ?? 0,
+              showSizeChanger: false,
+              onChange: (p) => updateParams({ page: String(p) }),
+            }}
+          />
+        </Spin>
       </section>
     </div>
   )
