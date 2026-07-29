@@ -5,13 +5,11 @@ import { baseApi } from '../baseApi'
 export type AdminPermissionKey =
   | 'dashboard_overview'
   | 'user_management'
-  | 'business_management'
-  | 'categories'
-  | 'payments'
+  | 'orders'
+  | 'broadcast'
+  | 'report'
   | 'settings'
   | 'support'
-  | 'promotions'
-  | 'events_management'
 
 export interface ControllerUserRef {
   _id: string

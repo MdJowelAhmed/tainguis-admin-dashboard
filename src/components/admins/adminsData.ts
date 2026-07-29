@@ -1,12 +1,11 @@
 export type AdminPermission =
-  | 'dashboard'
-  | 'users'
+  | 'dashboard_overview'
+  | 'user_management'
   | 'orders'
   | 'broadcast'
-  | 'support'
-  | 'reports'
+  | 'report'
   | 'settings'
-  | 'admins'
+  | 'support'
 
 export type AdminRole = 'super_admin' | 'manager' | 'support' | 'custom'
 
@@ -26,36 +25,33 @@ export type AdminAccount = {
 }
 
 export const permissionLabels: Record<AdminPermission, string> = {
-  dashboard: 'Dashboard',
-  users: 'Users',
+  dashboard_overview: 'Dashboard Overview',
+  user_management: 'User Management',
   orders: 'Orders',
   broadcast: 'Broadcast',
-  support: 'Support',
-  reports: 'Reports',
+  report: 'Report',
   settings: 'Settings',
-  admins: 'Admin management',
+  support: 'Support',
 }
 
 export const permissionDescriptions: Record<AdminPermission, string> = {
-  dashboard: 'View the home dashboard and key metrics',
-  users: 'Manage customer accounts, edit profiles, ban or restrict',
+  dashboard_overview: 'View the home dashboard and key metrics',
+  user_management: 'Manage customer and staff accounts',
   orders: 'View, update status, refund, and cancel orders',
   broadcast: 'Send announcements and notifications to users',
-  support: 'Respond to customer support tickets',
-  reports: 'Review and act on user reports',
+  report: 'Review and act on user reports',
   settings: 'Change account settings and platform configuration',
-  admins: 'Create, edit, and remove admin accounts',
+  support: 'Respond to customer support tickets',
 }
 
 export const allPermissions: AdminPermission[] = [
-  'dashboard',
-  'users',
+  'dashboard_overview',
+  'user_management',
   'orders',
   'broadcast',
-  'support',
-  'reports',
+  'report',
   'settings',
-  'admins',
+  'support',
 ]
 
 export const roleLabels: Record<AdminRole, string> = {
@@ -67,8 +63,8 @@ export const roleLabels: Record<AdminRole, string> = {
 
 export const rolePresets: Record<AdminRole, AdminPermission[]> = {
   super_admin: allPermissions,
-  manager: ['dashboard', 'users', 'orders', 'support', 'reports', 'broadcast'],
-  support: ['dashboard', 'support', 'users'],
+  manager: ['dashboard_overview', 'user_management', 'orders', 'support', 'report', 'broadcast'],
+  support: ['dashboard_overview', 'support', 'user_management'],
   custom: [],
 }
 
@@ -110,7 +106,7 @@ export const initialAdmins: AdminAccount[] = [
     name: 'Lucía Méndez',
     email: 'lucia.m@tianguislive.com',
     role: 'custom',
-    permissions: ['dashboard', 'orders', 'reports'],
+    permissions: ['dashboard_overview', 'orders', 'report'],
     status: 'suspended',
     createdAt: '2025-11-02',
     lastActiveAt: '2026-04-30 11:11',
