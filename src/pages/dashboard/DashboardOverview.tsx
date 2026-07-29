@@ -1,6 +1,5 @@
-import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Tag } from 'antd'
+import { Spin, Tag } from 'antd'
 import {
   Bar,
   BarChart,
@@ -23,17 +22,14 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react'
-import { useUsers } from '../../components/users/usersStore'
-import { useAllOrders } from '../../components/orders/ordersStore'
-import { useStreams } from '../../components/live/liveStore'
-import { useTickets } from '../../components/support/supportStore'
-import { useReports } from '../../components/reports/reportsStore'
 import {
-  buildMonthlyTrend,
-  buildRevenueEvents,
-  sourceColors,
-  summarizeRevenue,
-} from '../../components/revenue/revenueData'
+  useGetOverviewStatsQuery,
+  useGetRevenueByMonthsQuery,
+  useGetRecentOrdersQuery,
+  useGetRecentlyLiveShowsQuery,
+  useGetRecentSupportedTicketsQuery,
+  useGetRecentPendingReportsQuery,
+} from '../../redux/api/overviewApi'
 import {
   orderStatusColor,
   orderStatusLabel,
@@ -44,59 +40,18 @@ import { formatPeso } from '../../lib/currency'
 import { PriorityBadge } from '../../components/support/badges'
 import { formatLabels as liveFormatLabels } from '../../components/live/liveData'
 import { reasonLabels as reportReasonLabels } from '../../components/reports/reportsData'
+import type { OrderStatus, PaymentStatus } from '../../components/users/usersData'
+import type { ReportReason } from '../../components/reports/reportsData'
 
 const numberFmt = new Intl.NumberFormat('en-US')
 
 export default function DashboardOverview() {
-  const users = useUsers()
-  const orders = useAllOrders()
-  const streams = useStreams()
-  const tickets = useTickets()
-  const reports = useReports()
-
-  const userById = useMemo(
-    () => new Map(users.map((u) => [u.id, u])),
-    [users],
-  )
-
-  const revenue = useMemo(() => {
-    const bundle = buildRevenueEvents(orders)
-    const summary = summarizeRevenue(bundle.events, bundle.refunded)
-    const monthly = buildMonthlyTrend(
-      bundle.events,
-      6,
-      new Date('2026-05-31'),
-    )
-    return { summary, monthly }
-  }, [orders])
-
-  const activeUsers = useMemo(
-    () => users.filter((u) => u.status === 'active').length,
-    [users],
-  )
-
-  const liveStreams = useMemo(
-    () => streams.filter((s) => s.status === 'live'),
-    [streams],
-  )
-
-  const openTickets = useMemo(
-    () =>
-      tickets
-        .filter((t) => t.status === 'open' || t.status === 'in_progress')
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-    [tickets],
-  )
-
-  const pendingReports = useMemo(
-    () =>
-      reports
-        .filter((r) => r.status === 'pending')
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [reports],
-  )
-
-  const recentOrders = useMemo(() => orders.slice(0, 6), [orders])
+  const { data: stats, isLoading: isLoadingStats } = useGetOverviewStatsQuery()
+  const { data: revenueMonthly = [], isLoading: isLoadingRevenue } = useGetRevenueByMonthsQuery()
+  const { data: recentOrders = [], isLoading: isLoadingOrders } = useGetRecentOrdersQuery(8)
+  const { data: liveStreams = [], isLoading: isLoadingLive } = useGetRecentlyLiveShowsQuery(4)
+  const { data: openTickets = [], isLoading: isLoadingTickets } = useGetRecentSupportedTicketsQuery(3)
+  const { data: pendingReports = [], isLoading: isLoadingReports } = useGetRecentPendingReportsQuery(3)
 
   return (
     <div className="flex flex-col gap-6 py-6">
@@ -108,46 +63,49 @@ export default function DashboardOverview() {
         </p>
       </header>
 
+      {/* KPI Cards */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
           label="Total revenue"
-          value={formatPeso(revenue.summary.net)}
+          value={isLoadingStats ? '...' : formatPeso(stats?.totalRevenue ?? 0)}
           icon={Wallet}
           tone="brand"
           href="/dashboard/revenue"
         />
         <Kpi
           label="Orders"
-          value={numberFmt.format(orders.length)}
+          value={isLoadingStats ? '...' : numberFmt.format(stats?.totalOrders ?? 0)}
           icon={ShoppingBag}
           tone="orange"
           href="/dashboard/orders"
         />
         <Kpi
           label="Active users"
-          value={numberFmt.format(activeUsers)}
+          value={isLoadingStats ? '...' : numberFmt.format(stats?.activeUsers ?? 0)}
           icon={UsersIcon}
           tone="blue"
           href="/dashboard/users"
         />
         <Kpi
           label="Live now"
-          value={numberFmt.format(liveStreams.length)}
+          value={isLoadingStats ? '...' : numberFmt.format(stats?.liveShows ?? 0)}
           icon={Radio}
           tone="red"
           href="/dashboard/live"
         />
       </section>
 
+      {/* Main Grid: Revenue & Live streams */}
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
+        {/* Revenue Chart */}
         <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-semibold text-gray-900">
-                Revenue (last 6 months)
+                Revenue by Month
               </h2>
               <p className="mt-1 text-xs text-gray-500">
-                Commission and shipping margin from paid orders
+                Monthly revenue summary from paid orders
               </p>
             </div>
             <Link
@@ -157,58 +115,62 @@ export default function DashboardOverview() {
               View report
             </Link>
           </div>
-          <div className="mt-5 h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={revenue.monthly} barGap={4}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="#e5e7eb"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="label"
-                  stroke="#9ca3af"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  stroke="#9ca3af"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v: number) => `${Math.round(v / 1000)}k`}
-                />
-                <Tooltip
-                  formatter={(v) => formatPeso(Number(v) || 0)}
-                  contentStyle={{
-                    borderRadius: 8,
-                    border: '1px solid #e5e7eb',
-                    fontSize: 12,
-                  }}
-                />
-                <Legend
-                  iconType="circle"
-                  wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-                />
-                <Bar
-                  dataKey="commission"
-                  stackId="r"
-                  fill={sourceColors.commission}
-                  name="Commission"
-                />
-                <Bar
-                  dataKey="shipping"
-                  stackId="r"
-                  fill={sourceColors.shipping}
-                  name="Shipping"
-                  radius={[6, 6, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="mt-5 h-80">
+            {isLoadingRevenue ? (
+              <div className="flex h-full items-center justify-center">
+                <Spin />
+              </div>
+            ) : revenueMonthly.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-gray-500">
+                No revenue data available
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={revenueMonthly} barGap={4}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#e5e7eb"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="label"
+                    stroke="#9ca3af"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="#9ca3af"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v: number) => `$${v}`}
+                  />
+                  <Tooltip
+                    formatter={(v) => formatPeso(Number(v) || 0)}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: '1px solid #e5e7eb',
+                      fontSize: 12,
+                    }}
+                  />
+                  <Legend
+                    iconType="circle"
+                    wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                  />
+                  <Bar
+                    dataKey="revenue"
+                    fill="#6366f1"
+                    name="Revenue"
+                    radius={[6, 6, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
+        {/* Live streams sidebar */}
         <aside className="rounded-2xl border border-surface-border bg-surface-card p-5">
           <div className="flex items-center justify-between">
             <div>
@@ -227,60 +189,71 @@ export default function DashboardOverview() {
               See all
             </Link>
           </div>
-          {liveStreams.length === 0 ? (
+          {isLoadingLive ? (
+            <div className="flex h-32 items-center justify-center">
+              <Spin />
+            </div>
+          ) : liveStreams.length === 0 ? (
             <p className="mt-6 text-sm text-gray-500">
               No streams are live right now.
             </p>
           ) : (
             <ul className="mt-4 space-y-3">
-              {liveStreams.map((s) => {
-                const seller = userById.get(s.sellerId)
-                return (
-                  <li key={s.id}>
-                    <Link
-                      to={`/dashboard/live/${s.id}`}
-                      className="flex items-center gap-3 rounded-xl border border-surface-border bg-surface-elevated p-3 hover:bg-white"
-                    >
-                      <div
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white"
-                        style={{ backgroundColor: s.thumbnailColor }}
-                      >
+              {liveStreams.map((s) => (
+                <li key={s._id}>
+                  <Link
+                    to={`/dashboard/live/${s._id}`}
+                    className="flex items-center gap-3 rounded-xl border border-surface-border bg-surface-elevated p-3 hover:bg-white transition-colors"
+                  >
+                    {s.thumbnail ? (
+                      <img
+                        src={s.thumbnail}
+                        alt={s.title}
+                        className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none'
+                        }}
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white">
                         {s.format === 'auction' ? (
                           <Gavel size={16} />
                         ) : (
                           <Video size={16} />
                         )}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold text-gray-900">
-                          {s.title}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {seller?.name ?? 'Unknown'} · {liveFormatLabels[s.format]}
-                        </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-gray-900">
+                        {s.title}
                       </div>
-                      <div className="text-right">
-                        <div className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
-                          <span className="relative flex h-2 w-2">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-                            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-                          </span>
-                          LIVE
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {numberFmt.format(s.currentViewers)} viewers
-                        </div>
+                      <div className="text-xs text-gray-500 truncate">
+                        {s.sellerInfo?.name ?? 'Unknown'} · {s.categoryInfo?.name ?? liveFormatLabels[s.format as keyof typeof liveFormatLabels] ?? s.format}
                       </div>
-                    </Link>
-                  </li>
-                )
-              })}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
+                        <span className="relative flex h-2 w-2">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                        </span>
+                        LIVE
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {numberFmt.format(s.activeViewers ?? 0)} viewers
+                      </div>
+                    </div>
+                  </Link>
+                </li>
+              ))}
             </ul>
           )}
         </aside>
       </section>
 
+      {/* Lower Section: Recent orders & Action Queue */}
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]">
+        {/* Recent Orders */}
         <div className="rounded-2xl border border-surface-border bg-surface-card">
           <div className="flex items-center justify-between border-b border-surface-border p-5">
             <div>
@@ -299,47 +272,60 @@ export default function DashboardOverview() {
               <ArrowUpRight size={12} />
             </Link>
           </div>
-          {recentOrders.length === 0 ? (
+          {isLoadingOrders ? (
+            <div className="flex h-32 items-center justify-center p-6">
+              <Spin />
+            </div>
+          ) : recentOrders.length === 0 ? (
             <p className="p-6 text-sm text-gray-500">No orders yet.</p>
           ) : (
             <ul className="divide-y divide-surface-border">
-              {recentOrders.map((o) => (
-                <li key={o.id}>
-                  <Link
-                    to={`/dashboard/orders/${o.id}`}
-                    className="flex items-center gap-4 px-5 py-3 hover:bg-surface-elevated"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900">
-                          {o.id}
-                        </span>
-                        <Tag color={orderStatusColor[o.status]}>
-                          {orderStatusLabel[o.status]}
-                        </Tag>
-                        <Tag color={paymentStatusColor[o.paymentStatus]}>
-                          {paymentStatusLabel[o.paymentStatus]}
-                        </Tag>
+              {recentOrders.map((o) => {
+                const statusColor = orderStatusColor[o.orderStatus as OrderStatus] || 'blue'
+                const statusText = orderStatusLabel[o.orderStatus as OrderStatus] || o.orderStatus.replace(/_/g, ' ')
+                const payColor = paymentStatusColor[o.paymentStatus as PaymentStatus] || 'green'
+                const payText = paymentStatusLabel[o.paymentStatus as PaymentStatus] || o.paymentStatus
+                const itemCount = o.items?.reduce((n, i) => n + i.quantity, 0) ?? 0
+
+                return (
+                  <li key={o._id}>
+                    <Link
+                      to={`/dashboard/orders/${o._id}`}
+                      className="flex items-center gap-4 px-5 py-3 hover:bg-surface-elevated transition-colors"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-900">
+                            {o.orderId || o._id}
+                          </span>
+                          <Tag color={statusColor} className="capitalize">
+                            {statusText}
+                          </Tag>
+                          <Tag color={payColor} className="capitalize">
+                            {payText}
+                          </Tag>
+                        </div>
+                        <div className="mt-0.5 truncate text-xs text-gray-500">
+                          {o.buyer?.name ?? 'Customer'} · {new Date(o.createdAt).toLocaleDateString()}
+                        </div>
                       </div>
-                      <div className="mt-0.5 truncate text-xs text-gray-500">
-                        {o.customerName} · {o.placedAt}
+                      <div className="text-right shrink-0">
+                        <div className="text-sm font-semibold text-gray-900">
+                          {formatPeso(o.total)}
+                        </div>
+                        <div className="text-[11px] text-gray-500">
+                          {itemCount} item{itemCount === 1 ? '' : 's'}
+                        </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-semibold text-gray-900">
-                        {formatPeso(o.total)}
-                      </div>
-                      <div className="text-[11px] text-gray-500">
-                        {o.items.reduce((n, i) => n + i.quantity, 0)} items
-                      </div>
-                    </div>
-                  </Link>
-                </li>
-              ))}
+                    </Link>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>
 
+        {/* Action Queue: Support Tickets & Pending Reports */}
         <aside className="flex flex-col gap-4">
           <ActionQueueCard
             title="Open support tickets"
@@ -348,26 +334,30 @@ export default function DashboardOverview() {
             icon={LifeBuoy}
             tone="amber"
           >
-            {openTickets.length === 0 ? (
+            {isLoadingTickets ? (
+              <div className="flex h-20 items-center justify-center">
+                <Spin />
+              </div>
+            ) : openTickets.length === 0 ? (
               <Empty text="All tickets resolved." />
             ) : (
               <ul className="space-y-2">
                 {openTickets.slice(0, 3).map((t) => (
-                  <li key={t.id}>
+                  <li key={t._id}>
                     <Link
-                      to={`/dashboard/support/${t.id}`}
-                      className="block rounded-lg border border-surface-border bg-surface-elevated p-3 hover:bg-white"
+                      to={`/dashboard/support/${t._id}`}
+                      className="block rounded-lg border border-surface-border bg-surface-elevated p-3 hover:bg-white transition-colors"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-gray-900">
-                            {t.subject}
+                            {t.title}
                           </div>
-                          <div className="text-[11px] text-gray-500">
-                            {t.id} · updated {t.updatedAt}
+                          <div className="text-[11px] text-gray-500 truncate">
+                            {t.ticketId} · user: {t.user?.name ?? 'Unknown'}
                           </div>
                         </div>
-                        <PriorityBadge priority={t.priority} />
+                        <PriorityBadge priority={t.priority as any} />
                       </div>
                     </Link>
                   </li>
@@ -383,29 +373,33 @@ export default function DashboardOverview() {
             icon={Flag}
             tone="red"
           >
-            {pendingReports.length === 0 ? (
+            {isLoadingReports ? (
+              <div className="flex h-20 items-center justify-center">
+                <Spin />
+              </div>
+            ) : pendingReports.length === 0 ? (
               <Empty text="No pending reports." />
             ) : (
               <ul className="space-y-2">
                 {pendingReports.slice(0, 3).map((r) => {
-                  const reported = userById.get(r.reportedUserId)
+                  const reasonText = reportReasonLabels[r.reason as ReportReason] || r.reason.replace(/_/g, ' ')
                   return (
-                    <li key={r.id}>
+                    <li key={r._id}>
                       <Link
-                        to={`/dashboard/reports/${r.id}`}
-                        className="block rounded-lg border border-surface-border bg-surface-elevated p-3 hover:bg-white"
+                        to={`/dashboard/reports/${r._id}`}
+                        className="block rounded-lg border border-surface-border bg-surface-elevated p-3 hover:bg-white transition-colors"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-gray-900">
-                              {reportReasonLabels[r.reason]}
+                            <div className="truncate text-sm font-medium text-gray-900 capitalize">
+                              {reasonText}
                             </div>
-                            <div className="text-[11px] text-gray-500">
-                              {reported?.name ?? 'Unknown'} · {r.createdAt}
+                            <div className="text-[11px] text-gray-500 truncate">
+                              Target: {r.reportedUser?.name ?? 'Unknown'} · {new Date(r.createdAt).toLocaleDateString()}
                             </div>
                           </div>
                           <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-                            {r.id.toUpperCase()}
+                            {r.reportCode || r._id.slice(-6)}
                           </span>
                         </div>
                       </Link>
