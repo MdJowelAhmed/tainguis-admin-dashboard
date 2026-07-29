@@ -147,6 +147,7 @@ export default function DashboardOverview() {
                     tickFormatter={(v: number) => `$${v}`}
                   />
                   <Tooltip
+                    cursor={false}
                     formatter={(v) => formatPeso(Number(v) || 0)}
                     contentStyle={{
                       borderRadius: 8,
