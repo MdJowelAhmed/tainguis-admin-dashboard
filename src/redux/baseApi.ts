@@ -55,6 +55,7 @@ export const baseApi = createApi({
     'User',
     'LiveShow',
     'Dashboard',
+    'Order',
     // Add more tag types here as you create new API slices
   ],
   endpoints: () => ({}),

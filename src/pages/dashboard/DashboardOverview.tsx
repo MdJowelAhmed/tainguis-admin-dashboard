@@ -292,6 +292,7 @@ export default function DashboardOverview() {
                   <li key={o._id}>
                     <Link
                       to={`/dashboard/orders/${o._id}`}
+                      state={{ order: o }}
                       className="flex items-center gap-4 px-5 py-3 hover:bg-surface-elevated transition-colors"
                     >
                       <div className="min-w-0 flex-1">

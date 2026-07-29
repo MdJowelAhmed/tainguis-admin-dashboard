@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Input, Select, Table, Tag } from 'antd'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Input, Select, Table, Tag, Spin, Alert } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   CreditCard,
@@ -10,92 +9,81 @@ import {
   ShoppingBag,
   Wallet,
 } from 'lucide-react'
-import { useAllOrders, type OrderWithCustomer } from '../../components/orders/ordersStore'
+import { useGetAllOrdersQuery, useGetOrderStatsQuery } from '../../redux/api/orderApi'
+import type { OrderListItem, GetOrdersParams } from '../../redux/api/orderApi'
 import {
   orderStatusColor,
   orderStatusLabel,
   paymentStatusColor,
   paymentStatusLabel,
 } from '../../components/orders/orderLabels'
-import type {
-  OrderStatus,
-  PaymentStatus,
-} from '../../components/users/usersData'
-
-type StatusFilter = 'all' | OrderStatus
-type PaymentFilter = 'all' | PaymentStatus
+import type { OrderStatus, PaymentStatus } from '../../components/users/usersData'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
-  currency: 'MXN',
+  currency: 'USD',
   maximumFractionDigits: 0,
 })
 
 export default function Orders() {
-  const orders = useAllOrders()
   const navigate = useNavigate()
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all')
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return orders.filter((o) => {
-      if (statusFilter !== 'all' && o.status !== statusFilter) return false
-      if (paymentFilter !== 'all' && o.paymentStatus !== paymentFilter)
-        return false
-      if (!q) return true
-      return (
-        o.id.toLowerCase().includes(q) ||
-        o.customerName.toLowerCase().includes(q) ||
-        o.customerEmail.toLowerCase().includes(q) ||
-        (o.trackingNumber?.toLowerCase().includes(q) ?? false)
-      )
+  const search = searchParams.get('searchTerm') ?? ''
+  const statusFilter = searchParams.get('orderStatus') ?? 'all'
+  const paymentFilter = searchParams.get('paymentStatus') ?? 'all'
+  const page = Number(searchParams.get('page') ?? '1')
+  const pageSize = 10
+
+  const updateParams = (updates: Record<string, string | null>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      Object.entries(updates).forEach(([k, v]) => {
+        if (v === null || v === '' || v === 'all') {
+          next.delete(k)
+        } else {
+          next.set(k, v)
+        }
+      })
+      return next
     })
-  }, [orders, search, statusFilter, paymentFilter])
+  }
 
-  const counts = useMemo(() => {
-    const revenue = orders
-      .filter((o) => o.paymentStatus === 'paid')
-      .reduce((sum, o) => sum + o.total, 0)
-    const refunded = orders.filter((o) => o.paymentStatus === 'refunded')
-      .length
-    const pendingPayment = orders.filter((o) => o.paymentStatus === 'pending')
-      .length
-    const inFulfillment = orders.filter(
-      (o) =>
-        o.status === 'pending' ||
-        o.status === 'processing' ||
-        o.status === 'shipped',
-    ).length
-    const avg = orders.length > 0 ? revenue / orders.length : 0
-    return {
-      total: orders.length,
-      revenue,
-      refunded,
-      pendingPayment,
-      inFulfillment,
-      avg,
-    }
-  }, [orders])
+  // ── Queries ────────────────────────────────────────────────────────────────
+  const { data: statsRes, isLoading: isLoadingStats } = useGetOrderStatsQuery()
+  const stats = statsRes?.data
 
-  const columns: ColumnsType<OrderWithCustomer> = [
+  const queryParams: GetOrdersParams = {
+    page,
+    limit: pageSize,
+    ...(search.trim() ? { searchTerm: search.trim() } : {}),
+    ...(statusFilter !== 'all' ? { orderStatus: statusFilter } : {}),
+    ...(paymentFilter !== 'all' ? { paymentStatus: paymentFilter } : {}),
+  }
+
+  const { data: ordersRes, isLoading: isLoadingOrders, isError, error } = useGetAllOrdersQuery(queryParams)
+
+  const orders = ordersRes?.data ?? []
+  const pagination = ordersRes?.pagination
+
+  const columns: ColumnsType<OrderListItem> = [
     {
       title: 'Order',
-      key: 'id',
+      key: 'orderId',
       render: (_, o) => (
         <div>
           <Link
-            to={`/dashboard/orders/${o.id}`}
+            to={`/dashboard/orders/${o._id}`}
+            state={{ order: o }}
             className="text-sm font-semibold text-gray-900 hover:text-brand"
           >
-            {o.id}
+            {o.orderId || o._id}
           </Link>
-          <div className="text-xs text-gray-500">{o.placedAt}</div>
+          <div className="text-xs text-gray-500">
+            {new Date(o.createdAt).toLocaleDateString()}
+          </div>
         </div>
       ),
-      sorter: (a, b) => a.placedAt.localeCompare(b.placedAt),
-      defaultSortOrder: 'descend',
     },
     {
       title: 'Customer',
@@ -103,14 +91,14 @@ export default function Orders() {
       render: (_, o) => (
         <div className="min-w-0">
           <Link
-            to={`/dashboard/users/${o.customerId}`}
+            to={`/dashboard/users/${o.buyer?._id}`}
             onClick={(e) => e.stopPropagation()}
             className="block truncate text-sm font-medium text-gray-900 hover:text-brand"
           >
-            {o.customerName}
+            {o.buyer?.name ?? 'Customer'}
           </Link>
           <div className="truncate text-xs text-gray-500">
-            {o.customerEmail}
+            {o.buyer?.email ?? ''}
           </div>
         </div>
       ),
@@ -119,11 +107,10 @@ export default function Orders() {
       title: 'Items',
       key: 'items',
       align: 'right',
-      render: (_, o) => (
-        <span className="text-sm text-gray-700">
-          {o.items.reduce((n, i) => n + i.quantity, 0)}
-        </span>
-      ),
+      render: (_, o) => {
+        const itemCount = o.items?.reduce((n, i) => n + i.quantity, 0) ?? 0
+        return <span className="text-sm text-gray-700">{itemCount}</span>
+      },
     },
     {
       title: 'Total',
@@ -134,41 +121,24 @@ export default function Orders() {
           {currency.format(o.total)}
         </span>
       ),
-      sorter: (a, b) => a.total - b.total,
     },
     {
       title: 'Payment',
-      key: 'payment',
-      render: (_, o) => (
-        <Tag color={paymentStatusColor[o.paymentStatus]}>
-          {paymentStatusLabel[o.paymentStatus]}
-        </Tag>
-      ),
-      filters: [
-        { text: 'Paid', value: 'paid' },
-        { text: 'Pending', value: 'pending' },
-        { text: 'Refunded', value: 'refunded' },
-        { text: 'Failed', value: 'failed' },
-      ],
-      onFilter: (value, o) => o.paymentStatus === value,
+      key: 'paymentStatus',
+      render: (_, o) => {
+        const color = paymentStatusColor[o.paymentStatus as PaymentStatus] || 'green'
+        const label = paymentStatusLabel[o.paymentStatus as PaymentStatus] || o.paymentStatus
+        return <Tag color={color} className="capitalize">{label}</Tag>
+      },
     },
     {
       title: 'Status',
-      key: 'status',
-      render: (_, o) => (
-        <Tag color={orderStatusColor[o.status]}>
-          {orderStatusLabel[o.status]}
-        </Tag>
-      ),
-      filters: [
-        { text: 'Pending', value: 'pending' },
-        { text: 'Processing', value: 'processing' },
-        { text: 'Shipped', value: 'shipped' },
-        { text: 'Delivered', value: 'delivered' },
-        { text: 'Cancelled', value: 'cancelled' },
-        { text: 'Refunded', value: 'refunded' },
-      ],
-      onFilter: (value, o) => o.status === value,
+      key: 'orderStatus',
+      render: (_, o) => {
+        const color = orderStatusColor[o.orderStatus as OrderStatus] || (o.orderStatus === 'in_progress' ? 'blue' : 'geekblue')
+        const label = orderStatusLabel[o.orderStatus as OrderStatus] || o.orderStatus.replace(/_/g, ' ')
+        return <Tag color={color} className="capitalize">{label}</Tag>
+      },
     },
     {
       title: '',
@@ -177,7 +147,8 @@ export default function Orders() {
       width: 60,
       render: (_, o) => (
         <Link
-          to={`/dashboard/orders/${o.id}`}
+          to={`/dashboard/orders/${o._id}`}
+          state={{ order: o }}
           onClick={(e) => e.stopPropagation()}
           className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-surface-elevated hover:text-gray-900"
           aria-label="View order"
@@ -188,6 +159,17 @@ export default function Orders() {
     },
   ]
 
+  if (isError) {
+    const errMsg =
+      (error as { data?: { message?: string } })?.data?.message ??
+      'Failed to load orders.'
+    return (
+      <div className="py-6">
+        <Alert type="error" message={errMsg} showIcon />
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-6 py-6">
       <header>
@@ -197,45 +179,50 @@ export default function Orders() {
         </p>
       </header>
 
+      {/* Summary Cards */}
       <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <SummaryCard label="Total orders" value={String(counts.total)} icon={ShoppingBag} />
+        <SummaryCard
+          label="Total orders"
+          value={isLoadingStats ? '...' : String(stats?.totalOrders ?? 0)}
+          icon={ShoppingBag}
+        />
         <SummaryCard
           label="Revenue (paid)"
-          value={currency.format(counts.revenue)}
+          value={isLoadingStats ? '...' : currency.format(stats?.revenue ?? 0)}
           icon={Wallet}
           tone="green"
         />
         <SummaryCard
           label="In fulfillment"
-          value={String(counts.inFulfillment)}
+          value={isLoadingStats ? '...' : String(stats?.inFulfillment ?? 0)}
           icon={Package}
           tone="blue"
         />
         <SummaryCard
           label="Avg. order value"
-          value={currency.format(Math.round(counts.avg))}
+          value={isLoadingStats ? '...' : currency.format(Math.round(stats?.avgOrderValue ?? 0))}
           icon={CreditCard}
         />
       </section>
 
+      {/* Main Table */}
       <section className="rounded-2xl border border-surface-border bg-surface-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-surface-border p-4">
           <Input
             allowClear
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => updateParams({ searchTerm: e.target.value, page: null })}
             placeholder="Search by order id, customer, or tracking"
             prefix={<Search size={16} className="text-gray-400" />}
             className="max-w-[340px]"
           />
           <Select
             value={statusFilter}
-            onChange={setStatusFilter}
+            onChange={(val) => updateParams({ orderStatus: val, page: null })}
             style={{ width: 170 }}
             options={[
               { value: 'all', label: 'All statuses' },
-              { value: 'pending', label: 'Pending' },
-              { value: 'processing', label: 'Processing' },
+              { value: 'in_progress', label: 'In Progress' },
               { value: 'shipped', label: 'Shipped' },
               { value: 'delivered', label: 'Delivered' },
               { value: 'cancelled', label: 'Cancelled' },
@@ -244,7 +231,7 @@ export default function Orders() {
           />
           <Select
             value={paymentFilter}
-            onChange={setPaymentFilter}
+            onChange={(val) => updateParams({ paymentStatus: val, page: null })}
             style={{ width: 170 }}
             options={[
               { value: 'all', label: 'All payments' },
@@ -255,21 +242,29 @@ export default function Orders() {
             ]}
           />
           <span className="ml-auto text-xs text-gray-500">
-            Showing {filtered.length} of {orders.length}
+            {pagination ? `${pagination.total} total orders` : ''}
           </span>
         </div>
 
-        <Table<OrderWithCustomer>
-          className="dashboard-table"
-          rowKey="id"
-          columns={columns}
-          dataSource={filtered}
-          pagination={{ pageSize: 10, showSizeChanger: false }}
-          onRow={(o) => ({
-            onClick: () => navigate(`/dashboard/orders/${o.id}`),
-            style: { cursor: 'pointer' },
-          })}
-        />
+        <Spin spinning={isLoadingOrders}>
+          <Table<OrderListItem>
+            className="dashboard-table"
+            rowKey="_id"
+            columns={columns}
+            dataSource={orders}
+            pagination={{
+              current: page,
+              pageSize,
+              total: pagination?.total ?? 0,
+              showSizeChanger: false,
+              onChange: (p) => updateParams({ page: String(p) }),
+            }}
+            onRow={(o) => ({
+              onClick: () => navigate(`/dashboard/orders/${o._id}`, { state: { order: o } }),
+              style: { cursor: 'pointer' },
+            })}
+          />
+        </Spin>
       </section>
     </div>
   )
@@ -308,4 +303,3 @@ function SummaryCard({
     </div>
   )
 }
-
