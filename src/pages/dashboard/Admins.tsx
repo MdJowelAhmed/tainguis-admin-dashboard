@@ -1,174 +1,181 @@
-import { useMemo, useState } from 'react'
-import { App, Dropdown, Input, Select, Table, Tooltip } from 'antd'
+import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { App, Dropdown, Input, Select, Table, Tooltip, Spin, Alert } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   MoreHorizontal,
-  PauseCircle,
   Pencil,
-  PlayCircle,
   Plus,
   Search,
   Trash2,
 } from 'lucide-react'
 import {
-  deleteAdmin,
-  setAdminStatus,
-  useAdmins,
-} from '../../components/admins/adminsStore'
+  useGetAllControllerQuery,
+  useDeleteControllerMutation,
+} from '../../redux/api/controllerApi'
+import type { AdminAccountItem, GetAdminsParams } from '../../redux/api/controllerApi'
 import {
   permissionLabels,
   roleLabels,
-  type AdminAccount,
+  type AdminPermission,
   type AdminRole,
-  type AdminStatus,
 } from '../../components/admins/adminsData'
 import AdminFormModal from '../../components/admins/AdminFormModal'
 
-type StatusFilter = 'all' | AdminStatus
+type StatusFilter = 'all' | 'active' | 'suspended'
 type RoleFilter = 'all' | AdminRole
 
-const roleStyles: Record<AdminRole, string> = {
+const roleStyles: Record<string, string> = {
   super_admin: 'bg-brand/10 text-brand ring-brand/20',
   manager: 'bg-blue-100 text-blue-700 ring-blue-200',
   support: 'bg-green-100 text-green-700 ring-green-200',
   custom: 'bg-amber-100 text-amber-700 ring-amber-200',
 }
 
-const statusStyles: Record<AdminStatus, string> = {
+const statusStyles: Record<string, string> = {
   active: 'bg-green-100 text-green-700 ring-green-200',
   suspended: 'bg-gray-100 text-gray-700 ring-gray-200',
 }
 
 export default function Admins() {
-  const admins = useAdmins()
   const { modal, message } = App.useApp()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  const search = searchParams.get('searchTerm') ?? ''
+  const statusFilter = searchParams.get('status') ?? 'all'
+  const roleFilter = searchParams.get('role') ?? 'all'
+  const page = Number(searchParams.get('page') ?? '1')
+  const pageSize = 10
+
   const [modalOpen, setModalOpen] = useState(false)
-  const [editing, setEditing] = useState<AdminAccount | null>(null)
+  const [editing, setEditing] = useState<AdminAccountItem | null>(null)
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return admins.filter((a) => {
-      if (statusFilter !== 'all' && a.status !== statusFilter) return false
-      if (roleFilter !== 'all' && a.role !== roleFilter) return false
-      if (!q) return true
-      return (
-        a.name.toLowerCase().includes(q) ||
-        a.email.toLowerCase().includes(q) ||
-        (a.phone?.toLowerCase().includes(q) ?? false)
-      )
+  const updateParams = (updates: Record<string, string | null>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      Object.entries(updates).forEach(([k, v]) => {
+        if (v === null || v === '' || v === 'all') {
+          next.delete(k)
+        } else {
+          next.set(k, v)
+        }
+      })
+      return next
     })
-  }, [admins, search, statusFilter, roleFilter])
+  }
+
+  // ── Queries ────────────────────────────────────────────────────────────────
+  const queryParams: GetAdminsParams = {
+    page,
+    limit: pageSize,
+    ...(search.trim() ? { searchTerm: search.trim() } : {}),
+    ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
+    ...(roleFilter !== 'all' ? { role: roleFilter } : {}),
+  }
+
+  const { data: adminsRes, isLoading, isError, error } = useGetAllControllerQuery(queryParams)
+  const [deleteController, { isLoading: isDeleting }] = useDeleteControllerMutation()
+
+  const admins = adminsRes?.data ?? []
+  const pagination = adminsRes?.pagination
 
   const openCreate = () => {
     setEditing(null)
     setModalOpen(true)
   }
-  const openEdit = (a: AdminAccount) => {
+  const openEdit = (a: AdminAccountItem) => {
     setEditing(a)
     setModalOpen(true)
   }
 
-  const toggleStatus = (a: AdminAccount) => {
-    if (a.role === 'super_admin') {
-      message.warning('Super Admin cannot be suspended.')
-      return
-    }
-    const next: AdminStatus = a.status === 'active' ? 'suspended' : 'active'
-    const verb = next === 'suspended' ? 'Suspend' : 'Reactivate'
-    modal.confirm({
-      title: `${verb} ${a.name}?`,
-      content:
-        next === 'suspended'
-          ? 'A suspended admin will lose access until reactivated.'
-          : 'This admin will regain access to the panel.',
-      okText: verb,
-      okButtonProps: next === 'suspended' ? { danger: true } : undefined,
-      onOk: () => {
-        setAdminStatus(a.id, next)
-        message.success(`${a.name} is now ${next}.`)
-      },
-    })
-  }
-
-  const remove = (a: AdminAccount) => {
+  const remove = (a: AdminAccountItem) => {
     if (a.role === 'super_admin') {
       message.warning('Super Admin cannot be deleted.')
       return
     }
     modal.confirm({
-      title: `Delete ${a.name}?`,
+      title: `Delete ${a.user?.name ?? 'Admin'}?`,
       content: 'This admin account will be removed permanently.',
       okText: 'Delete',
       okButtonProps: { danger: true },
-      onOk: () => {
-        deleteAdmin(a.id)
-        message.success(`${a.name} deleted.`)
+      onOk: async () => {
+        try {
+          await deleteController(a._id).unwrap()
+          message.success(`${a.user?.name ?? 'Admin'} deleted.`)
+        } catch {
+          message.error('Failed to delete admin.')
+        }
       },
     })
   }
 
-  const columns: ColumnsType<AdminAccount> = [
+  const columns: ColumnsType<AdminAccountItem> = [
     {
       title: 'Admin',
       key: 'admin',
-      render: (_, a) => (
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-sm font-semibold text-gray-700">
-            {a.avatarUrl ? (
-              <img
-                src={a.avatarUrl}
-                alt={a.name}
-                className="h-full w-full rounded-full object-cover"
-              />
-            ) : (
-              a.name.charAt(0)
-            )}
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-gray-900">
-              {a.name}
+      render: (_, a) => {
+        const name = a.user?.name ?? 'Admin'
+        const email = a.user?.email ?? ''
+        const profileImage = a.user?.profileImage
+
+        return (
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-sm font-semibold text-gray-700">
+              {profileImage ? (
+                <img
+                  src={profileImage}
+                  alt={name}
+                  className="h-full w-full rounded-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none'
+                  }}
+                />
+              ) : (
+                name.charAt(0).toUpperCase()
+              )}
             </div>
-            <div className="truncate text-xs text-gray-500">{a.email}</div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-gray-900">
+                {name}
+              </div>
+              <div className="truncate text-xs text-gray-500">{email}</div>
+            </div>
           </div>
-        </div>
-      ),
+        )
+      },
     },
     {
       title: 'Role',
       key: 'role',
-      render: (_, a) => (
-        <span
-          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${roleStyles[a.role]}`}
-        >
-          {roleLabels[a.role]}
-        </span>
-      ),
-      filters: (Object.keys(roleLabels) as AdminRole[]).map((r) => ({
-        text: roleLabels[r],
-        value: r,
-      })),
-      onFilter: (value, a) => a.role === value,
+      render: (_, a) => {
+        const style = roleStyles[a.role] || 'bg-gray-100 text-gray-700 ring-gray-200'
+        const label = roleLabels[a.role as AdminRole] || a.role
+        return (
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset capitalize ${style}`}
+          >
+            {label}
+          </span>
+        )
+      },
     },
     {
       title: 'Permissions',
       key: 'permissions',
       render: (_, a) => {
-        const shown = a.permissions.slice(0, 3)
-        const extra = a.permissions.length - shown.length
-        const full = a.permissions.map((p) => permissionLabels[p]).join(', ')
+        const perms = (a.permissions ?? []) as AdminPermission[]
+        const shown = perms.slice(0, 3)
+        const extra = perms.length - shown.length
+        const full = perms.map((p) => permissionLabels[p] || p).join(', ')
         return (
           <Tooltip title={full}>
             <div className="flex flex-wrap gap-1.5">
               {shown.map((p) => (
                 <span
                   key={p}
-                  className="inline-flex items-center rounded-md bg-surface-elevated px-2 py-0.5 text-[11px] font-medium text-gray-700"
+                  className="inline-flex items-center rounded-md bg-surface-elevated px-2 py-0.5 text-[11px] font-medium text-gray-700 capitalize"
                 >
-                  {permissionLabels[p]}
+                  {permissionLabels[p] || p.replace(/_/g, ' ')}
                 </span>
               ))}
               {extra > 0 && (
@@ -184,28 +191,30 @@ export default function Admins() {
     {
       title: 'Status',
       key: 'status',
-      render: (_, a) => (
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${statusStyles[a.status]}`}
-        >
+      render: (_, a) => {
+        const style = statusStyles[a.status] || 'bg-gray-100 text-gray-700 ring-gray-200'
+        return (
           <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              a.status === 'active' ? 'bg-green-500' : 'bg-gray-400'
-            }`}
-          />
-          {a.status === 'active' ? 'Active' : 'Suspended'}
-        </span>
-      ),
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${style}`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                a.status === 'active' ? 'bg-green-500' : 'bg-gray-400'
+              }`}
+            />
+            {a.status === 'active' ? 'Active' : 'Suspended'}
+          </span>
+        )
+      },
     },
     {
-      title: 'Last active',
-      key: 'lastActive',
+      title: 'Created',
+      key: 'createdAt',
       render: (_, a) => (
         <span className="text-xs text-gray-500">
-          {a.lastActiveAt ?? 'Never signed in'}
+          {new Date(a.createdAt).toLocaleDateString()}
         </span>
       ),
-      sorter: (a, b) => (a.lastActiveAt ?? '').localeCompare(b.lastActiveAt ?? ''),
     },
     {
       title: '',
@@ -222,18 +231,6 @@ export default function Admins() {
                 icon: <Pencil size={14} />,
                 label: 'Edit',
                 onClick: () => openEdit(a),
-              },
-              {
-                key: 'status',
-                icon:
-                  a.status === 'active' ? (
-                    <PauseCircle size={14} />
-                  ) : (
-                    <PlayCircle size={14} />
-                  ),
-                label: a.status === 'active' ? 'Suspend' : 'Reactivate',
-                onClick: () => toggleStatus(a),
-                disabled: a.role === 'super_admin',
               },
               { type: 'divider' },
               {
@@ -257,6 +254,17 @@ export default function Admins() {
       ),
     },
   ]
+
+  if (isError) {
+    const errMsg =
+      (error as { data?: { message?: string } })?.data?.message ??
+      'Failed to load admin accounts.'
+    return (
+      <div className="py-6">
+        <Alert type="error" message={errMsg} showIcon />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6 py-6">
@@ -283,14 +291,14 @@ export default function Admins() {
           <Input
             allowClear
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => updateParams({ searchTerm: e.target.value, page: null })}
             placeholder="Search by name, email, or phone"
             prefix={<Search size={16} className="text-gray-400" />}
             className="max-w-[320px]"
           />
           <Select
             value={roleFilter}
-            onChange={setRoleFilter}
+            onChange={(val) => updateParams({ role: val, page: null })}
             style={{ width: 170 }}
             options={[
               { value: 'all', label: 'All roles' },
@@ -302,7 +310,7 @@ export default function Admins() {
           />
           <Select
             value={statusFilter}
-            onChange={setStatusFilter}
+            onChange={(val) => updateParams({ status: val, page: null })}
             style={{ width: 160 }}
             options={[
               { value: 'all', label: 'All statuses' },
@@ -311,17 +319,25 @@ export default function Admins() {
             ]}
           />
           <span className="ml-auto text-xs text-gray-500">
-            Showing {filtered.length} of {admins.length}
+            {pagination ? `${pagination.total} total admins` : ''}
           </span>
         </div>
 
-        <Table<AdminAccount>
-          className="dashboard-table"
-          rowKey="id"
-          columns={columns}
-          dataSource={filtered}
-          pagination={admins.length > 10 ? { pageSize: 10 } : false}
-        />
+        <Spin spinning={isLoading || isDeleting}>
+          <Table<AdminAccountItem>
+            className="dashboard-table"
+            rowKey="_id"
+            columns={columns}
+            dataSource={admins}
+            pagination={{
+              current: page,
+              pageSize,
+              total: pagination?.total ?? 0,
+              showSizeChanger: false,
+              onChange: (p) => updateParams({ page: String(p) }),
+            }}
+          />
+        </Spin>
       </section>
 
       <AdminFormModal
@@ -333,4 +349,3 @@ export default function Admins() {
     </div>
   )
 }
-

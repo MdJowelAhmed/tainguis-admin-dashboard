@@ -1,32 +1,34 @@
 import { useEffect, useMemo, useState } from 'react'
-import { App, Checkbox, Input, Modal, Select } from 'antd'
+import { App, Checkbox, Input, Modal, Select, Spin } from 'antd'
 import {
   allPermissions,
   permissionDescriptions,
   permissionLabels,
   rolePresets,
   roleLabels,
-  type AdminAccount,
   type AdminPermission,
   type AdminRole,
 } from './adminsData'
-import { createAdmin, updateAdmin } from './adminsStore'
+import {
+  useCreateControllerMutation,
+  useUpdateControllerMutation,
+} from '../../redux/api/controllerApi'
+import type { AdminAccountItem } from '../../redux/api/controllerApi'
 
 type Mode = 'create' | 'edit'
 
 type Props = {
   open: boolean
   mode: Mode
-  admin?: AdminAccount | null
+  admin?: AdminAccountItem | null
   onClose: () => void
 }
 
 const emptyState = {
   name: '',
   email: '',
-  phone: '',
-  role: 'manager' as AdminRole,
-  permissions: rolePresets.manager,
+  role: 'custom' as AdminRole,
+  permissions: ['dashboard_overview', 'user_management'] as AdminPermission[],
   password: '',
 }
 
@@ -38,7 +40,7 @@ function arraysEqual(a: AdminPermission[], b: AdminPermission[]) {
 
 function matchRole(perms: AdminPermission[]): AdminRole {
   for (const role of ['super_admin', 'manager', 'support'] as AdminRole[]) {
-    if (arraysEqual(perms, rolePresets[role])) return role
+    if (rolePresets[role] && arraysEqual(perms, rolePresets[role])) return role
   }
   return 'custom'
 }
@@ -50,9 +52,11 @@ export default function AdminFormModal({
   onClose,
 }: Props) {
   const { message } = App.useApp()
+  const [createController, { isLoading: isCreating }] = useCreateControllerMutation()
+  const [updateController, { isLoading: isUpdating }] = useUpdateControllerMutation()
+
   const [name, setName] = useState(emptyState.name)
   const [email, setEmail] = useState(emptyState.email)
-  const [phone, setPhone] = useState(emptyState.phone)
   const [role, setRole] = useState<AdminRole>(emptyState.role)
   const [permissions, setPermissions] = useState<AdminPermission[]>(
     emptyState.permissions,
@@ -62,25 +66,23 @@ export default function AdminFormModal({
   useEffect(() => {
     if (!open) return
     if (mode === 'edit' && admin) {
-      setName(admin.name)
-      setEmail(admin.email)
-      setPhone(admin.phone ?? '')
-      setRole(admin.role)
-      setPermissions(admin.permissions)
+      setName(admin.user?.name ?? '')
+      setEmail(admin.user?.email ?? '')
+      setRole((admin.role as AdminRole) || 'custom')
+      setPermissions((admin.permissions as AdminPermission[]) ?? [])
       setPassword('')
     } else {
       setName(emptyState.name)
       setEmail(emptyState.email)
-      setPhone(emptyState.phone)
       setRole(emptyState.role)
-      setPermissions(rolePresets.manager)
+      setPermissions(emptyState.permissions)
       setPassword('')
     }
   }, [open, mode, admin])
 
   const onRoleChange = (next: AdminRole) => {
     setRole(next)
-    if (next !== 'custom') {
+    if (next !== 'custom' && rolePresets[next]) {
       setPermissions(rolePresets[next])
     }
   }
@@ -98,35 +100,36 @@ export default function AdminFormModal({
     if (effectiveRole !== role) setRole(effectiveRole)
   }, [effectiveRole, role])
 
-  const submit = () => {
+  const submit = async () => {
     if (!name.trim()) return message.warning('Name is required.')
     if (!email.trim()) return message.warning('Email is required.')
     if (!email.includes('@')) return message.warning('Enter a valid email.')
     if (permissions.length === 0)
       return message.warning('Select at least one page permission.')
-    if (mode === 'create' && password.length < 8)
-      return message.warning('Password must be at least 8 characters.')
+    if (mode === 'create' && password.length > 0 && password.length < 6)
+      return message.warning('Password must be at least 6 characters.')
 
-    if (mode === 'create') {
-      createAdmin({
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim() || undefined,
-        role,
-        permissions,
-      })
-      message.success('Admin account created.')
-    } else if (admin) {
-      updateAdmin(admin.id, {
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim() || undefined,
-        role,
-        permissions,
-      })
-      message.success('Admin updated.')
+    const payload = {
+      name: name.trim(),
+      email: email.trim(),
+      role,
+      permissions,
+      ...(password.trim() ? { password: password.trim() } : {}),
     }
-    onClose()
+
+    try {
+      if (mode === 'create') {
+        await createController(payload).unwrap()
+        message.success('Admin account created.')
+      } else if (admin) {
+        await updateController({ id: admin._id, data: payload }).unwrap()
+        message.success('Admin updated.')
+      }
+      onClose()
+    } catch (err: any) {
+      const errMsg = err?.data?.message ?? 'Failed to save admin account.'
+      message.error(errMsg)
+    }
   }
 
   const isSuper = mode === 'edit' && admin?.role === 'super_admin'
@@ -134,112 +137,95 @@ export default function AdminFormModal({
   return (
     <Modal
       open={open}
-      title={mode === 'create' ? 'Create admin account' : `Edit ${admin?.name}`}
+      title={mode === 'create' ? 'Create admin account' : `Edit ${admin?.user?.name ?? 'Admin'}`}
       okText={mode === 'create' ? 'Create account' : 'Save changes'}
       onOk={submit}
       onCancel={onClose}
+      confirmLoading={isCreating || isUpdating}
       width={680}
       destroyOnClose
     >
-      <div className="space-y-5">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Field label="Full name">
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Renata Salinas"
-            />
-          </Field>
-          <Field label="Phone (optional)">
-            <Input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="e.g. +52 55 1234 5678"
-            />
-          </Field>
-          <Field label="Email">
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@tianguislive.com"
-            />
-          </Field>
-          {mode === 'create' && (
-            <Field label="Temporary password">
+      <Spin spinning={isCreating || isUpdating}>
+        <div className="space-y-5 py-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Full name">
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Mr Nur"
+              />
+            </Field>
+            <Field label="Email">
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@meikeya.com"
+              />
+            </Field>
+            <Field label={mode === 'create' ? 'Password' : 'Password (optional)'}>
               <Input.Password
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
+                placeholder={mode === 'create' ? 'At least 6 characters' : 'Leave blank to keep unchanged'}
               />
             </Field>
-          )}
-        </div>
-
-        <Field label="Role">
-          <Select
-            value={role}
-            onChange={onRoleChange}
-            disabled={isSuper}
-            style={{ width: '100%' }}
-            options={(Object.keys(roleLabels) as AdminRole[]).map((r) => ({
-              value: r,
-              label: roleLabels[r],
-            }))}
-          />
-          <p className="mt-1.5 text-xs text-gray-500">
-            Picking a role pre-fills the page permissions below. Adjusting them
-            switches the role to “Custom”.
-          </p>
-        </Field>
-
-        <div>
-          <div className="flex items-center justify-between">
-            <label className="block text-sm font-medium text-gray-900">
-              Page permissions
-            </label>
-            <span className="text-xs text-gray-500">
-              {permissions.length} of {allPermissions.length} selected
-            </span>
+            <Field label="Role">
+              <Select
+                value={role}
+                onChange={onRoleChange}
+                disabled={isSuper}
+                style={{ width: '100%' }}
+                options={(Object.keys(roleLabels) as AdminRole[]).map((r) => ({
+                  value: r,
+                  label: roleLabels[r],
+                }))}
+              />
+            </Field>
           </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {allPermissions.map((p) => {
-              const checked = permissions.includes(p)
-              const disabled = isSuper
-              return (
-                <label
-                  key={p}
-                  className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${
-                    checked
-                      ? 'border-brand bg-brand/5'
-                      : 'border-surface-border bg-white hover:border-gray-300'
-                  } ${disabled ? 'opacity-60' : 'cursor-pointer'}`}
-                >
-                  <Checkbox
-                    checked={checked}
-                    disabled={disabled}
-                    onChange={() => togglePermission(p)}
-                  />
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-gray-900">
-                      {permissionLabels[p]}
+
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium text-gray-900">
+                Page permissions
+              </label>
+              <span className="text-xs text-gray-500">
+                {permissions.length} of {allPermissions.length} selected
+              </span>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {allPermissions.map((p) => {
+                const checked = permissions.includes(p)
+                const disabled = isSuper
+                return (
+                  <label
+                    key={p}
+                    className={`flex items-start gap-3 rounded-xl border p-3 transition-colors ${
+                      checked
+                        ? 'border-brand bg-brand/5'
+                        : 'border-surface-border bg-white hover:border-gray-300'
+                    } ${disabled ? 'opacity-60' : 'cursor-pointer'}`}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={() => togglePermission(p)}
+                    />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-gray-900">
+                        {permissionLabels[p]}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {permissionDescriptions[p]}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500">
-                      {permissionDescriptions[p]}
-                    </div>
-                  </div>
-                </label>
-              )
-            })}
+                  </label>
+                )
+              })}
+            </div>
           </div>
-          {isSuper && (
-            <p className="mt-3 text-xs text-amber-700">
-              Super Admin always has full access. Change the role to edit
-              permissions.
-            </p>
-          )}
         </div>
-      </div>
+      </Spin>
     </Modal>
   )
 }
