@@ -282,7 +282,7 @@ export default function UserDetails() {
               </div>
             ) : (
               <ul className="mt-4 space-y-3">
-                {user.mostOrderedProducts.map((p: { _id?: string; name?: string; quantity?: number; totalSpent?: number }, idx: number) => (
+                {user.mostOrderedProducts.map((p, idx: number) => (
                   <li
                     key={p._id ?? idx}
                     className="flex items-center gap-3 rounded-xl border border-surface-border bg-surface-elevated p-3"

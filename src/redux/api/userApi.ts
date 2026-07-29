@@ -17,6 +17,26 @@ export interface UserListItem {
   totalSpent: number
 }
 
+export interface MostOrderedProduct {
+  _id?: string
+  name?: string
+  quantity?: number
+  totalSpent?: number
+}
+
+export interface OrderHistoryItem {
+  _id: string
+  createdAt: string
+  status: string
+  total?: number
+  items?: {
+    _id?: string
+    name?: string
+    quantity?: number
+    price?: number
+  }[]
+}
+
 export interface UserDetail {
   _id: string
   name: string
@@ -28,8 +48,8 @@ export interface UserDetail {
   status: UserStatus
   createdAt: string
   updatedAt: string
-  orderHistory: unknown[]
-  mostOrderedProducts: unknown[]
+  orderHistory: OrderHistoryItem[]
+  mostOrderedProducts: MostOrderedProduct[]
   totalOrders: number
   totalSpent: number
   avgOrderValue: number
