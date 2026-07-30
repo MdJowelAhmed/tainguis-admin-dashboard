@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { imageUrl } from '../../lib/imageUrl'
-import { App, Input } from 'antd'
+import { App, Input, Spin } from 'antd'
+import {
+  useGetPrivacyPolicyQuery,
+  useGetTermsAndConditionsQuery,
+  useUpdateDisclaimerMutation,
+} from '../../redux/api/settingsApi'
 import {
   Camera,
   ChevronDown,
@@ -478,32 +483,75 @@ function ContentEditorSection({
 }) {
   const stored = useContent()
   const { modal, message } = App.useApp()
-  const [draft, setDraft] = useState(stored[contentKey])
+
+  const isPrivacy = contentKey === 'privacy'
+  const isTerms = contentKey === 'terms'
+
+  const { data: privacyRes, isLoading: loadingPrivacy } = useGetPrivacyPolicyQuery(undefined, {
+    skip: !isPrivacy,
+  })
+  const { data: termsRes, isLoading: loadingTerms } = useGetTermsAndConditionsQuery(undefined, {
+    skip: !isTerms,
+  })
+  const [updateDisclaimer, { isLoading: isUpdating }] = useUpdateDisclaimerMutation()
+
+  const apiContent = isPrivacy
+    ? privacyRes?.data?.content
+    : isTerms
+      ? termsRes?.data?.content
+      : stored[contentKey]
+
+  const [draft, setDraft] = useState(apiContent ?? '')
   const [savedAt, setSavedAt] = useState<string | null>(null)
 
   useEffect(() => {
-    setDraft(stored[contentKey])
-  }, [contentKey, stored])
+    if (apiContent !== undefined) {
+      setDraft(apiContent)
+    }
+  }, [apiContent, contentKey])
 
-  const dirty = draft !== stored[contentKey]
+  const isLoading = (isPrivacy && loadingPrivacy) || (isTerms && loadingTerms)
+  const dirty = draft !== (apiContent ?? '')
 
-  const save = () => {
-    setContent(contentKey, draft)
-    setSavedAt(new Date().toLocaleString())
-    message.success(`${title} updated.`)
+  const save = async () => {
+    if (isPrivacy || isTerms) {
+      const type = isPrivacy ? 'privacy-policy' : 'terms-and-conditions'
+      try {
+        await updateDisclaimer({ type, content: draft }).unwrap()
+        setSavedAt(new Date().toLocaleString())
+        message.success(`${title} updated successfully.`)
+      } catch (err: any) {
+        message.error(err?.data?.message || `Failed to update ${title}.`)
+      }
+    } else {
+      setContent(contentKey, draft)
+      setSavedAt(new Date().toLocaleString())
+      message.success(`${title} updated.`)
+    }
   }
 
   const onReset = () => {
     modal.confirm({
       title: `Reset ${title}?`,
-      content: 'The content will be restored to its default.',
+      content: 'The content will be restored to its initial state.',
       okText: 'Reset',
       okButtonProps: { danger: true },
       onOk: () => {
-        resetContent(contentKey)
-        message.success(`${title} reset to default.`)
+        setDraft(apiContent ?? '')
+        if (!isPrivacy && !isTerms) {
+          resetContent(contentKey)
+        }
+        message.success(`${title} reset to initial value.`)
       },
     })
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Spin size="large" />
+      </div>
+    )
   }
 
   return (
@@ -526,15 +574,15 @@ function ContentEditorSection({
           className="inline-flex h-10 items-center gap-2 rounded-md border border-surface-border bg-white px-4 text-sm font-medium text-gray-700 hover:bg-surface-elevated"
         >
           <RotateCcw size={14} />
-          Reset to default
+          Reset to initial
         </button>
         <button
           type="button"
           onClick={save}
-          disabled={!dirty}
+          disabled={!dirty || isUpdating}
           className="inline-flex h-11 items-center rounded-md bg-brand px-6 text-sm font-semibold text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Save Changes
+          {isUpdating ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
     </>

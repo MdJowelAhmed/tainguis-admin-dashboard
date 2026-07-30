@@ -1,7 +1,5 @@
 import { baseApi } from '../baseApi'
 
-// ─── Interfaces & Types ───────────────────────────────────────────────────────
-
 export interface BroadcastListItem {
   _id: string
   code?: string
@@ -58,7 +56,6 @@ export interface ApiResponse<T = void> {
   data?: T
 }
 
-// ─── Broadcast API Endpoints ──────────────────────────────────────────────────
 
 const broadcastApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
