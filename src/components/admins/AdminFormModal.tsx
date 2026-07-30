@@ -24,11 +24,15 @@ type Props = {
   onClose: () => void
 }
 
+const selectablePermissions = allPermissions.filter(
+  (p) => p !== 'dashboard_overview',
+)
+
 const emptyState = {
   name: '',
   email: '',
   role: 'custom' as AdminRole,
-  permissions: ['dashboard_overview', 'user_management'] as AdminPermission[],
+  permissions: ['user_management'] as AdminPermission[],
   password: '',
 }
 
@@ -39,7 +43,7 @@ function arraysEqual(a: AdminPermission[], b: AdminPermission[]) {
 }
 
 function matchRole(perms: AdminPermission[]): AdminRole {
-  for (const role of ['super_admin', 'admin', 'manager', 'support_agent'] as AdminRole[]) {
+  for (const role of ['admin', 'manager', 'support_agent'] as AdminRole[]) {
     if (rolePresets[role] && arraysEqual(perms, rolePresets[role])) return role
   }
   return 'custom'
@@ -180,7 +184,7 @@ export default function AdminFormModal({
                 disabled={isSuper}
                 style={{ width: '100%' }}
                 options={(Object.keys(roleLabels) as AdminRole[])
-                  .filter((r) => r !== 'support')
+                  .filter((r) => r !== 'support' && r !== 'super_admin')
                   .map((r) => ({
                     value: r,
                     label: roleLabels[r],
@@ -195,11 +199,11 @@ export default function AdminFormModal({
                 Page permissions
               </label>
               <span className="text-xs text-gray-500">
-                {permissions.length} of {allPermissions.length} selected
+                {permissions.length} of {selectablePermissions.length} selected
               </span>
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {allPermissions.map((p) => {
+              {selectablePermissions.map((p) => {
                 const checked = permissions.includes(p)
                 const disabled = isSuper
                 return (

@@ -71,10 +71,10 @@ export const roleLabels: Record<AdminRole, string> = {
 
 export const rolePresets: Record<AdminRole, AdminPermission[]> = {
   super_admin: allPermissions,
-  admin: ['dashboard_overview', 'user_management', 'orders', 'support', 'report', 'broadcast', 'settings'],
-  manager: ['dashboard_overview', 'user_management', 'orders', 'support', 'report', 'broadcast'],
-  support_agent: ['dashboard_overview', 'support', 'user_management'],
-  support: ['dashboard_overview', 'support', 'user_management'],
+  admin: ['user_management', 'orders', 'support', 'report', 'broadcast', 'settings'],
+  manager: ['user_management', 'orders', 'support', 'report', 'broadcast'],
+  support_agent: ['support', 'user_management'],
+  support: ['support', 'user_management'],
   custom: [],
 }
 

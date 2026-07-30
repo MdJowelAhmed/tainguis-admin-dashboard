@@ -301,7 +301,7 @@ export default function Admins() {
             options={[
               { value: 'all', label: 'All roles' },
               ...(Object.keys(roleLabels) as AdminRole[])
-                .filter((r) => r !== 'support')
+                .filter((r) => r !== 'support' && r !== 'super_admin')
                 .map((r) => ({
                   value: r,
                   label: roleLabels[r],
