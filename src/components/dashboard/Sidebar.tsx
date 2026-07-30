@@ -19,9 +19,9 @@ import {
 import TianguisLogo from '../auth/TianguisLogo'
 import { useReports } from '../reports/reportsStore'
 import { useTickets } from '../support/supportStore'
-import { useNotifications } from '../notifications/notificationsStore'
 import { useStreams } from '../live/liveStore'
 import { useGetMyProfileQuery } from '../../redux/api/authApi'
+import { useGetAllNotificationsQuery } from '../../redux/api/notificationApi'
 import { imageUrl } from '../../lib/imageUrl'
 
 type NavItem = {
@@ -60,16 +60,18 @@ type Props = {
 export default function Sidebar({ user, onLogout }: Props) {
   const { data: profileRes } = useGetMyProfileQuery()
   const profile = profileRes?.data
+  const { data: notificationRes } = useGetAllNotificationsQuery()
 
   const reports = useReports()
   const tickets = useTickets()
-  const notifications = useNotifications()
   const streams = useStreams()
   const pendingReports = reports.filter((r) => r.status === 'pending').length
   const openTickets = tickets.filter(
     (t) => t.status === 'open' || t.status === 'in_progress',
   ).length
-  const unreadNotifications = notifications.filter((n) => !n.read).length
+  const unreadNotifications =
+    notificationRes?.data?.unreadCount ??
+    (notificationRes?.data?.notifications?.filter((n) => !n.isRead).length || 0)
   const liveNow = streams.filter((s) => s.status === 'live').length
 
   const userRole = profile?.role || ''

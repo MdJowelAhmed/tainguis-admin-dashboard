@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { App } from 'antd'
+import { App, Spin } from 'antd'
 import {
   Bell,
   CheckCheck,
@@ -14,101 +14,161 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import {
-  clearAll,
-  deleteNotification,
-  markAllRead,
-  markRead,
-  useNotifications,
-} from '../../components/notifications/notificationsStore'
-import {
-  categoryLabels,
-  type Notification,
-  type NotificationCategory,
-  type NotificationTone,
-} from '../../components/notifications/notificationsData'
+  useGetAllNotificationsQuery,
+  useReadAllNotificationsMutation,
+  useReadSingleNotificationMutation,
+  useDeleteNotificationMutation,
+  type NotificationItem,
+} from '../../redux/api/notificationApi'
 
-const categoryIcons: Record<NotificationCategory, LucideIcon> = {
+const typeIcons: Record<string, LucideIcon> = {
   order: ShoppingBag,
   user: UsersIcon,
   support: LifeBuoy,
   report: Flag,
   broadcast: Megaphone,
+  announcement: Megaphone,
   admin: ShieldCheck,
 }
 
-const toneStyles: Record<NotificationTone, { bg: string; text: string }> = {
-  info: { bg: 'bg-blue-100', text: 'text-blue-700' },
-  success: { bg: 'bg-green-100', text: 'text-green-700' },
-  warning: { bg: 'bg-amber-100', text: 'text-amber-700' },
-  danger: { bg: 'bg-red-100', text: 'text-red-700' },
+const getIconForType = (type?: string): LucideIcon => {
+  if (!type) return Bell
+  return typeIcons[type.toLowerCase()] || Bell
 }
 
-type Filter = 'all' | 'unread' | NotificationCategory
+const getToneStyle = (type?: string) => {
+  switch (type?.toLowerCase()) {
+    case 'order':
+      return { bg: 'bg-blue-100', text: 'text-blue-700' }
+    case 'support':
+      return { bg: 'bg-amber-100', text: 'text-amber-700' }
+    case 'report':
+      return { bg: 'bg-red-100', text: 'text-red-700' }
+    case 'broadcast':
+    case 'announcement':
+      return { bg: 'bg-purple-100', text: 'text-purple-700' }
+    case 'user':
+      return { bg: 'bg-green-100', text: 'text-green-700' }
+    default:
+      return { bg: 'bg-brand/10', text: 'text-brand' }
+  }
+}
+
+type Filter = 'all' | 'unread' | string
 
 export default function Notifications() {
-  const notifications = useNotifications()
+  const { data: notificationRes, isLoading } = useGetAllNotificationsQuery()
+  const [readAllNotifications, { isLoading: isReadingAll }] =
+    useReadAllNotificationsMutation()
+  const [readSingleNotification] = useReadSingleNotificationMutation()
+  const [deleteNotification] = useDeleteNotificationMutation()
+
   const navigate = useNavigate()
   const { modal, message } = App.useApp()
   const [filter, setFilter] = useState<Filter>('all')
 
-  const unreadCount = useMemo(
-    () => notifications.filter((n) => !n.read).length,
-    [notifications],
+  const notifications = useMemo(
+    () => notificationRes?.data?.notifications || [],
+    [notificationRes],
   )
 
-  const counts = useMemo(() => {
-    const map = new Map<NotificationCategory, number>()
+  const unreadCount = useMemo(
+    () => notificationRes?.data?.unreadCount ?? notifications.filter((n) => !n.isRead).length,
+    [notificationRes, notifications],
+  )
+
+  const categoryCounts = useMemo(() => {
+    const map = new Map<string, number>()
     for (const n of notifications) {
-      map.set(n.category, (map.get(n.category) ?? 0) + 1)
+      const cat = n.type || 'general'
+      map.set(cat, (map.get(cat) ?? 0) + 1)
     }
     return map
   }, [notifications])
 
   const filtered = useMemo(() => {
     if (filter === 'all') return notifications
-    if (filter === 'unread') return notifications.filter((n) => !n.read)
-    return notifications.filter((n) => n.category === filter)
+    if (filter === 'unread') return notifications.filter((n) => !n.isRead)
+    return notifications.filter((n) => (n.type || 'general').toLowerCase() === filter.toLowerCase())
   }, [notifications, filter])
 
-  const handleOpen = (n: Notification) => {
-    if (!n.read) markRead(n.id)
-    navigate(n.linkTo)
+  const handleOpen = async (n: NotificationItem) => {
+    if (!n.isRead) {
+      try {
+        await readSingleNotification(n._id).unwrap()
+      } catch (err) {
+        console.error('Failed to mark read:', err)
+      }
+    }
+    if (n.referenceId) {
+      // Optional navigation if link or reference exists
+    }
   }
 
-  const handleDelete = (n: Notification) => {
-    deleteNotification(n.id)
-    message.success('Notification removed.')
-  }
-
-  const handleClearAll = () => {
-    if (notifications.length === 0) return
+  const handleDelete = (n: NotificationItem) => {
     modal.confirm({
-      title: 'Clear all notifications?',
-      content: 'This removes every notification from the list.',
-      okText: 'Clear all',
+      title: 'Remove Notification?',
+      content: 'Are you sure you want to delete this notification?',
+      okText: 'Delete',
       okButtonProps: { danger: true },
-      onOk: () => {
-        clearAll()
-        message.success('All notifications cleared.')
+      onOk: async () => {
+        try {
+          await deleteNotification(n._id).unwrap()
+          message.success('Notification removed.')
+        } catch (err: any) {
+          message.error(err?.data?.message || 'Failed to delete notification')
+        }
       },
     })
   }
 
-  const handleMarkAll = () => {
+  const handleMarkAll = async () => {
     if (unreadCount === 0) return
-    markAllRead()
-    message.success('All notifications marked as read.')
+    try {
+      await readAllNotifications().unwrap()
+      message.success('All notifications marked as read.')
+    } catch (err: any) {
+      message.error(err?.data?.message || 'Failed to mark all as read')
+    }
   }
+
+  const uniqueTypes = useMemo(() => {
+    const types = new Set<string>()
+    for (const n of notifications) {
+      if (n.type) types.add(n.type.toLowerCase())
+    }
+    return Array.from(types)
+  }, [notifications])
 
   const tabs: { key: Filter; label: string; count?: number }[] = [
     { key: 'all', label: 'All', count: notifications.length },
     { key: 'unread', label: 'Unread', count: unreadCount },
-    ...(Object.keys(categoryLabels) as NotificationCategory[]).map((c) => ({
-      key: c as Filter,
-      label: categoryLabels[c],
-      count: counts.get(c) ?? 0,
+    ...uniqueTypes.map((t) => ({
+      key: t,
+      label: t.charAt(0).toUpperCase() + t.slice(1),
+      count: categoryCounts.get(t) ?? 0,
     })),
   ]
+
+  const formatDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr)
+      return d.toLocaleString([], {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+    } catch {
+      return dateStr
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Spin size="large" />
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6 py-6">
@@ -125,20 +185,11 @@ export default function Notifications() {
           <button
             type="button"
             onClick={handleMarkAll}
-            disabled={unreadCount === 0}
+            disabled={unreadCount === 0 || isReadingAll}
             className="inline-flex h-10 items-center gap-2 rounded-md border border-surface-border bg-white px-4 text-sm font-medium text-gray-800 hover:bg-surface-elevated disabled:cursor-not-allowed disabled:opacity-50"
           >
             <CheckCheck size={14} />
             Mark all read
-          </button>
-          <button
-            type="button"
-            onClick={handleClearAll}
-            disabled={notifications.length === 0}
-            className="inline-flex h-10 items-center gap-2 rounded-md border border-red-200 bg-white px-4 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Trash2 size={14} />
-            Clear all
           </button>
         </div>
       </header>
@@ -187,10 +238,10 @@ export default function Notifications() {
         ) : (
           <ul className="divide-y divide-surface-border">
             {filtered.map((n) => {
-              const Icon = categoryIcons[n.category]
-              const tone = toneStyles[n.tone]
+              const Icon = getIconForType(n.type)
+              const tone = getToneStyle(n.type)
               return (
-                <li key={n.id}>
+                <li key={n._id}>
                   <div
                     role="button"
                     tabIndex={0}
@@ -202,7 +253,7 @@ export default function Notifications() {
                       }
                     }}
                     className={`flex cursor-pointer items-start gap-4 px-6 py-4 transition-colors hover:bg-surface-elevated ${
-                      !n.read ? 'bg-brand/5' : ''
+                      !n.isRead ? 'bg-brand/5' : ''
                     }`}
                   >
                     <span
@@ -215,7 +266,7 @@ export default function Notifications() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            {!n.read && (
+                            {!n.isRead && (
                               <span
                                 aria-label="Unread"
                                 className="h-2 w-2 shrink-0 rounded-full bg-brand"
@@ -226,12 +277,12 @@ export default function Notifications() {
                             </span>
                           </div>
                           <p className="mt-0.5 text-sm text-gray-600">
-                            {n.description}
+                            {n.message}
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
                           <span className="text-xs text-gray-500">
-                            {n.createdAt}
+                            {formatDate(n.createdAt)}
                           </span>
                           <button
                             type="button"
@@ -246,10 +297,15 @@ export default function Notifications() {
                           </button>
                         </div>
                       </div>
-                      <div className="mt-1.5">
-                        <span className="inline-flex items-center rounded-md bg-surface-elevated px-2 py-0.5 text-[11px] font-medium text-gray-600">
-                          {categoryLabels[n.category]}
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <span className="inline-flex items-center rounded-md bg-surface-elevated px-2 py-0.5 text-[11px] font-medium text-gray-600 capitalize">
+                          {n.type || 'General'}
                         </span>
+                        {n.channels && n.channels.length > 0 && (
+                          <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-[10px] text-gray-500">
+                            {n.channels.join(', ')}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
