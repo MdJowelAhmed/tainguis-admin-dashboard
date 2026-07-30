@@ -10,54 +10,40 @@ import {
   LifeBuoy,
   Search,
 } from 'lucide-react'
-import { useTickets } from '../../components/support/supportStore'
 import {
-  categoryLabels,
-  type Ticket,
-  type TicketCategory,
-  type TicketPriority,
-  type TicketStatus,
-} from '../../components/support/supportData'
-import { useUsers } from '../../components/users/usersStore'
+  useGetAllSupportTicketQuery,
+  type SupportTicketItem,
+  type SupportTicketPriority,
+  type SupportTicketStatus,
+} from '../../redux/api/supportApi'
+import { categoryLabels } from '../../components/support/supportData'
 import { PriorityBadge, TicketStatusBadge } from '../../components/support/badges'
 
-type StatusFilter = 'all' | TicketStatus
-type PriorityFilter = 'all' | TicketPriority
-type CategoryFilter = 'all' | TicketCategory
+type StatusFilter = 'all' | SupportTicketStatus | 'waiting_customer'
+type PriorityFilter = 'all' | SupportTicketPriority
+type CategoryFilter = 'all' | string
 
 export default function Support() {
-  const tickets = useTickets()
-  const users = useUsers()
   const navigate = useNavigate()
 
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
 
-  const userById = useMemo(
-    () => new Map(users.map((u) => [u.id, u])),
-    [users],
-  )
+  const { data: apiResponse, isLoading, isFetching } = useGetAllSupportTicketQuery({
+    page,
+    limit: pageSize,
+    searchTerm: search.trim() || undefined,
+    status: statusFilter !== 'all' ? statusFilter : undefined,
+    priority: priorityFilter !== 'all' ? priorityFilter : undefined,
+    category: categoryFilter !== 'all' ? categoryFilter : undefined,
+  })
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return tickets.filter((t) => {
-      if (statusFilter !== 'all' && t.status !== statusFilter) return false
-      if (priorityFilter !== 'all' && t.priority !== priorityFilter)
-        return false
-      if (categoryFilter !== 'all' && t.category !== categoryFilter)
-        return false
-      if (!q) return true
-      const customer = userById.get(t.customerId)?.name.toLowerCase() ?? ''
-      return (
-        t.id.toLowerCase().includes(q) ||
-        t.subject.toLowerCase().includes(q) ||
-        customer.includes(q) ||
-        (t.orderId?.toLowerCase().includes(q) ?? false)
-      )
-    })
-  }, [tickets, search, statusFilter, priorityFilter, categoryFilter, userById])
+  const tickets = useMemo(() => apiResponse?.data ?? [], [apiResponse])
+  const pagination = apiResponse?.pagination
 
   const counts = useMemo(() => {
     const open = tickets.filter(
@@ -69,44 +55,44 @@ export default function Support() {
         t.status !== 'resolved' &&
         t.status !== 'closed',
     ).length
-    const waiting = tickets.filter((t) => t.status === 'waiting_customer').length
+    const waiting = tickets.filter(
+      (t) => t.status === 'waiting_on_customer' || (t.status as string) === 'waiting_customer',
+    ).length
     const resolved = tickets.filter(
       (t) => t.status === 'resolved' || t.status === 'closed',
     ).length
     return { open, urgent, waiting, resolved }
   }, [tickets])
 
-  const columns: ColumnsType<Ticket> = [
+  const columns: ColumnsType<SupportTicketItem> = [
     {
-      title: 'Ticket',
-      key: 'ticket',
+      title: 'Ticket ID',
+      key: 'ticketId',
       render: (_, t) => (
         <div className="min-w-0">
           <Link
-            to={`/dashboard/support/${t.id}`}
+            to={`/dashboard/support/${t._id}`}
             onClick={(e) => e.stopPropagation()}
             className="text-sm font-semibold text-gray-900 hover:text-brand"
           >
-            {t.id}
+            {t.ticketId || t._id}
           </Link>
-          <div className="line-clamp-1 text-xs text-gray-600">{t.subject}</div>
+          <div className="line-clamp-1 text-xs text-gray-600">{t.title}</div>
         </div>
       ),
     },
     {
-      title: 'Customer',
-      key: 'customer',
+      title: 'User',
+      key: 'user',
       render: (_, t) => {
-        const u = userById.get(t.customerId)
-        if (!u) return <span className="text-sm text-gray-500">Unknown</span>
+        if (!t.user) return <span className="text-sm text-gray-500">N/A</span>
         return (
-          <Link
-            to={`/dashboard/users/${u.id}`}
-            onClick={(e) => e.stopPropagation()}
-            className="text-sm text-gray-700 hover:text-brand"
-          >
-            {u.name}
-          </Link>
+          <div className="flex flex-col">
+            <span className="text-sm font-medium text-gray-900">{t.user.name}</span>
+            {t.user.email && (
+              <span className="text-xs text-gray-500">{t.user.email}</span>
+            )}
+          </div>
         )
       },
     },
@@ -114,8 +100,10 @@ export default function Support() {
       title: 'Category',
       dataIndex: 'category',
       key: 'category',
-      render: (c: TicketCategory) => (
-        <span className="text-sm text-gray-700">{categoryLabels[c]}</span>
+      render: (c: string) => (
+        <span className="text-sm text-gray-700 capitalize">
+          {categoryLabels[c as keyof typeof categoryLabels] || c}
+        </span>
       ),
     },
     {
@@ -131,20 +119,27 @@ export default function Support() {
     {
       title: 'Assignee',
       key: 'assignee',
-      render: (_, t) =>
-        t.assigneeName ? (
-          <span className="text-sm text-gray-700">{t.assigneeName}</span>
+      render: (_, t) => {
+        const assigneeName =
+          typeof t.assignedTo === 'object' && t.assignedTo !== null
+            ? t.assignedTo.name
+            : t.assignedTo
+        return assigneeName ? (
+          <span className="text-sm text-gray-700">{assigneeName}</span>
         ) : (
           <span className="text-xs italic text-gray-400">Unassigned</span>
-        ),
+        )
+      },
     },
     {
-      title: 'Last update',
-      dataIndex: 'updatedAt',
-      key: 'updatedAt',
-      render: (d: string) => <span className="text-xs text-gray-500">{d}</span>,
-      sorter: (a, b) => a.updatedAt.localeCompare(b.updatedAt),
-      defaultSortOrder: 'descend',
+      title: 'Date',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (d?: string) => (
+        <span className="text-xs text-gray-500">
+          {d ? new Date(d).toLocaleDateString() : 'N/A'}
+        </span>
+      ),
     },
     {
       title: '',
@@ -153,7 +148,7 @@ export default function Support() {
       width: 60,
       render: (_, t) => (
         <Link
-          to={`/dashboard/support/${t.id}`}
+          to={`/dashboard/support/${t._id}`}
           onClick={(e) => e.stopPropagation()}
           className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-surface-elevated hover:text-gray-900"
           aria-label="Open ticket"
@@ -205,27 +200,36 @@ export default function Support() {
           <Input
             allowClear
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by ticket id, subject, customer, order"
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(1)
+            }}
+            placeholder="Search by title, ticket id..."
             prefix={<Search size={16} className="text-gray-400" />}
             className="max-w-[340px]"
           />
           <Select
             value={statusFilter}
-            onChange={setStatusFilter}
+            onChange={(val) => {
+              setStatusFilter(val)
+              setPage(1)
+            }}
             style={{ width: 170 }}
             options={[
               { value: 'all', label: 'All statuses' },
               { value: 'open', label: 'Open' },
               { value: 'in_progress', label: 'In progress' },
-              { value: 'waiting_customer', label: 'Waiting on customer' },
+              { value: 'waiting_on_customer', label: 'Waiting on customer' },
               { value: 'resolved', label: 'Resolved' },
               { value: 'closed', label: 'Closed' },
             ]}
           />
           <Select
             value={priorityFilter}
-            onChange={setPriorityFilter}
+            onChange={(val) => {
+              setPriorityFilter(val)
+              setPage(1)
+            }}
             style={{ width: 150 }}
             options={[
               { value: 'all', label: 'All priorities' },
@@ -237,7 +241,10 @@ export default function Support() {
           />
           <Select
             value={categoryFilter}
-            onChange={setCategoryFilter}
+            onChange={(val) => {
+              setCategoryFilter(val)
+              setPage(1)
+            }}
             style={{ width: 170 }}
             options={[
               { value: 'all', label: 'All categories' },
@@ -248,18 +255,28 @@ export default function Support() {
             ]}
           />
           <span className="ml-auto text-xs text-gray-500">
-            Showing {filtered.length} of {tickets.length}
+            {pagination ? `Total: ${pagination.total}` : `Showing ${tickets.length}`}
           </span>
         </div>
 
-        <Table<Ticket>
+        <Table<SupportTicketItem>
           className="dashboard-table"
-          rowKey="id"
+          rowKey="_id"
+          loading={isLoading || isFetching}
           columns={columns}
-          dataSource={filtered}
-          pagination={{ pageSize: 10, showSizeChanger: false }}
+          dataSource={tickets}
+          pagination={{
+            current: page,
+            pageSize,
+            total: pagination?.total ?? tickets.length,
+            onChange: (p, ps) => {
+              setPage(p)
+              setPageSize(ps)
+            },
+            showSizeChanger: true,
+          }}
           onRow={(t) => ({
-            onClick: () => navigate(`/dashboard/support/${t.id}`),
+            onClick: () => navigate(`/dashboard/support/${t._id}`),
             style: { cursor: 'pointer' },
           })}
         />

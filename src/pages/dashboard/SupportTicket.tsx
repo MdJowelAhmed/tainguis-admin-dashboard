@@ -1,46 +1,37 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { App, Input, Select, Switch } from 'antd'
+import { App, Input, Select, Spin } from 'antd'
 import {
   ArrowLeft,
   CheckCircle2,
   ExternalLink,
-  Lock,
   Mail,
   MessageSquare,
-  Package,
   RotateCcw,
   Send,
   Tag,
   User as UserIcon,
 } from 'lucide-react'
 import {
-  addTicketReply,
-  assignTicket,
-  updateTicketPriority,
-  updateTicketStatus,
-  useTicket,
-} from '../../components/support/supportStore'
-import {
-  categoryLabels,
-  channelLabels,
-  supportAgents,
-  type TicketPriority,
-  type TicketStatus,
-} from '../../components/support/supportData'
+  useGetSupportTicketByIdQuery,
+  useGetSupportMessageQuery,
+  useSendSupportMessageMutation,
+  useUpdateSupportMutation,
+  type SupportTicketPriority,
+  type SupportTicketStatus,
+} from '../../redux/api/supportApi'
+import { categoryLabels, supportAgents } from '../../components/support/supportData'
 import { PriorityBadge, TicketStatusBadge } from '../../components/support/badges'
-import { useUser } from '../../components/users/usersStore'
-import { useOrder } from '../../components/orders/ordersStore'
 
-const statusOptions: { value: TicketStatus; label: string }[] = [
+const statusOptions: { value: SupportTicketStatus; label: string }[] = [
   { value: 'open', label: 'Open' },
   { value: 'in_progress', label: 'In progress' },
-  { value: 'waiting_customer', label: 'Waiting on customer' },
+  { value: 'waiting_on_customer', label: 'Waiting on customer' },
   { value: 'resolved', label: 'Resolved' },
   { value: 'closed', label: 'Closed' },
 ]
 
-const priorityOptions: { value: TicketPriority; label: string }[] = [
+const priorityOptions: { value: SupportTicketPriority; label: string }[] = [
   { value: 'urgent', label: 'Urgent' },
   { value: 'high', label: 'High' },
   { value: 'medium', label: 'Medium' },
@@ -49,15 +40,37 @@ const priorityOptions: { value: TicketPriority; label: string }[] = [
 
 export default function SupportTicket() {
   const { id } = useParams<{ id: string }>()
-  const ticket = useTicket(id)
-  const customer = useUser(ticket?.customerId)
-  const order = useOrder(ticket?.orderId)
   const navigate = useNavigate()
   const { message } = App.useApp()
 
   const [reply, setReply] = useState('')
-  const [internal, setInternal] = useState(false)
-  const [sending, setSending] = useState(false)
+
+  // 1. Get Support Ticket details by ID
+  const { data: ticketRes, isLoading: loadingTicket } = useGetSupportTicketByIdQuery(
+    id ?? '',
+    { skip: !id },
+  )
+  const ticket = ticketRes?.data
+
+  // 2. Get Support Messages for ticket's chat session
+  const chatId = ticket?.chat ?? ''
+  const { data: messagesRes, isLoading: loadingMessages } = useGetSupportMessageQuery(
+    chatId,
+    { skip: !chatId },
+  )
+  const messages = messagesRes?.data ?? []
+
+  // 3. Mutations
+  const [updateSupport, { isLoading: updating }] = useUpdateSupportMutation()
+  const [sendSupportMessage, { isLoading: sending }] = useSendSupportMessageMutation()
+
+  if (loadingTicket) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Spin size="large" />
+      </div>
+    )
+  }
 
   if (!ticket) {
     return (
@@ -73,41 +86,71 @@ export default function SupportTicket() {
     )
   }
 
-  const onStatusChange = (status: TicketStatus) => {
-    updateTicketStatus(ticket.id, status)
-    message.success(`Status updated.`)
+  const assignedToId =
+    typeof ticket.assignedTo === 'object' && ticket.assignedTo !== null
+      ? ticket.assignedTo._id
+      : ticket.assignedTo
+
+  const handleUpdate = async (patch: {
+    status?: SupportTicketStatus
+    priority?: SupportTicketPriority
+    assignedTo?: string
+  }) => {
+    try {
+      await updateSupport({
+        id: ticket._id,
+        data: {
+          status: patch.status ?? ticket.status,
+          priority: patch.priority ?? ticket.priority,
+          assignedTo: patch.assignedTo !== undefined ? patch.assignedTo : assignedToId,
+        },
+      }).unwrap()
+      message.success('Ticket updated successfully.')
+    } catch (err: any) {
+      message.error(err?.data?.message || 'Failed to update ticket.')
+    }
   }
 
-  const onPriorityChange = (priority: TicketPriority) => {
-    updateTicketPriority(ticket.id, priority)
-    message.success(`Priority updated.`)
+  const onStatusChange = (status: SupportTicketStatus) => {
+    handleUpdate({ status })
+  }
+
+  const onPriorityChange = (priority: SupportTicketPriority) => {
+    handleUpdate({ priority })
   }
 
   const onAssign = (agentId: string | null) => {
-    assignTicket(ticket.id, agentId)
-    message.success(agentId ? 'Ticket assigned.' : 'Ticket unassigned.')
+    handleUpdate({ assignedTo: agentId ?? '' })
   }
 
-  const sendReply = () => {
-    const body = reply.trim()
-    if (!body) {
+  const sendReply = async () => {
+    const text = reply.trim()
+    if (!text) {
       message.warning('Write a reply first.')
       return
     }
-    setSending(true)
-    addTicketReply(ticket.id, body, { internal })
-    setReply('')
-    setSending(false)
-    message.success(internal ? 'Internal note added.' : 'Reply sent.')
+    if (!chatId) {
+      message.error('Chat ID is missing for this ticket.')
+      return
+    }
+    try {
+      await sendSupportMessage({
+        chat: chatId,
+        type: 'text',
+        text,
+      }).unwrap()
+      setReply('')
+      message.success('Reply sent successfully.')
+    } catch (err: any) {
+      message.error(err?.data?.message || 'Failed to send message.')
+    }
   }
 
   const resolveOrReopen = () => {
     if (ticket.status === 'resolved' || ticket.status === 'closed') {
-      updateTicketStatus(ticket.id, 'in_progress')
-      message.success('Ticket reopened.')
+      handleUpdate({ status: 'in_progress' })
     } else {
-      updateTicketStatus(ticket.id, 'resolved')
-      message.success('Ticket marked resolved.')
+      handleUpdate({ status: 'resolved' })
     }
   }
 
@@ -131,24 +174,24 @@ export default function SupportTicket() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                {ticket.id}
+                {ticket.ticketId || ticket._id}
               </span>
               <TicketStatusBadge status={ticket.status} />
               <PriorityBadge priority={ticket.priority} />
             </div>
             <h1 className="mt-2 text-2xl font-semibold text-gray-900">
-              {ticket.subject}
+              {ticket.title}
             </h1>
-            <p className="mt-1 text-sm text-gray-500">
-              Opened {ticket.createdAt} via {channelLabels[ticket.channel]} ·
-              Last activity {ticket.updatedAt}
-            </p>
+            {ticket.description && (
+              <p className="mt-1 text-sm text-gray-600">{ticket.description}</p>
+            )}
           </div>
 
           <button
             type="button"
             onClick={resolveOrReopen}
-            className={`inline-flex h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold text-white transition-colors ${
+            disabled={updating}
+            className={`inline-flex h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold text-white transition-colors disabled:opacity-50 ${
               isFinal
                 ? 'bg-gray-700 hover:bg-gray-800'
                 : 'bg-green-600 hover:bg-green-700'
@@ -178,93 +221,96 @@ export default function SupportTicket() {
                 Conversation
               </h2>
               <span className="text-xs text-gray-500">
-                {ticket.messages.length} message
-                {ticket.messages.length === 1 ? '' : 's'}
+                {messages.length} message{messages.length === 1 ? '' : 's'}
               </span>
             </div>
 
-            <ul className="flex flex-col gap-4 p-5">
-              {ticket.messages.map((m) => {
-                const isCustomer = m.authorType === 'customer'
-                return (
-                  <li
-                    key={m.id}
-                    className={`flex gap-3 ${isCustomer ? '' : 'flex-row-reverse'}`}
-                  >
-                    <div
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
-                        isCustomer
-                          ? 'bg-surface-elevated text-gray-700'
-                          : m.internal
-                            ? 'bg-amber-100 text-amber-700'
+            {loadingMessages ? (
+              <div className="flex justify-center p-8">
+                <Spin />
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="p-6 text-center text-sm text-gray-500">
+                No messages found for this support ticket.
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-4 p-5">
+                {messages.map((m) => {
+                  const isCustomer = !m.isMe
+                  const senderName = m.sender?.name || (isCustomer ? ticket.user?.name || 'Customer' : 'Support Agent')
+                  return (
+                    <li
+                      key={m._id}
+                      className={`flex gap-3 ${isCustomer ? '' : 'flex-row-reverse'}`}
+                    >
+                      <div
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+                          isCustomer
+                            ? 'bg-surface-elevated text-gray-700'
                             : 'bg-brand text-white'
-                      }`}
-                    >
-                      {m.authorName.charAt(0)}
-                    </div>
-                    <div
-                      className={`max-w-[80%] rounded-2xl border p-4 ${
-                        isCustomer
-                          ? 'border-surface-border bg-surface-elevated'
-                          : m.internal
-                            ? 'border-amber-200 bg-amber-50'
-                            : 'border-brand/30 bg-brand/5'
-                      }`}
-                    >
-                      <div className="mb-1 flex items-center gap-2">
-                        <span className="text-xs font-semibold text-gray-900">
-                          {m.authorName}
-                        </span>
-                        <span className="text-[11px] text-gray-500">
-                          {m.createdAt}
-                        </span>
-                        {m.internal && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                            <Lock size={10} />
-                            Internal
-                          </span>
+                        }`}
+                      >
+                        {m.sender?.profileImage ? (
+                          <img
+                            src={m.sender.profileImage}
+                            alt={senderName}
+                            className="h-9 w-9 rounded-full object-cover"
+                          />
+                        ) : (
+                          senderName.charAt(0).toUpperCase()
                         )}
                       </div>
-                      <p className="whitespace-pre-line text-sm text-gray-800">
-                        {m.body}
-                      </p>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
+                      <div
+                        className={`max-w-[80%] rounded-2xl border p-4 ${
+                          isCustomer
+                            ? 'border-surface-border bg-surface-elevated'
+                            : 'border-brand/30 bg-brand/5'
+                        }`}
+                      >
+                        <div className="mb-1 flex items-center gap-2">
+                          <span className="text-xs font-semibold text-gray-900">
+                            {senderName}
+                          </span>
+                          {m.createdAt && (
+                            <span className="text-[11px] text-gray-500">
+                              {new Date(m.createdAt).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                        {m.text && (
+                          <p className="whitespace-pre-line text-sm text-gray-800">
+                            {m.text}
+                          </p>
+                        )}
+                        {m.image && (
+                          <img
+                            src={m.image}
+                            alt="Attachment"
+                            className="mt-2 max-h-48 rounded-lg object-contain"
+                          />
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
           </div>
 
           <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-gray-900">
-                {internal ? 'Add internal note' : 'Reply to customer'}
-              </h2>
-              <label className="flex items-center gap-2 text-xs text-gray-600">
-                <Switch
-                  checked={internal}
-                  onChange={setInternal}
-                  size="small"
-                />
-                Internal note
-              </label>
-            </div>
+            <h2 className="text-sm font-semibold text-gray-900">
+              Reply to customer
+            </h2>
             <Input.TextArea
               rows={4}
               className="mt-3"
               value={reply}
               onChange={(e) => setReply(e.target.value)}
-              placeholder={
-                internal
-                  ? 'Visible to admins only. Not sent to the customer.'
-                  : 'Reply will be sent to the customer.'
-              }
+              placeholder="Type your message here..."
             />
             <div className="mt-3 flex items-center justify-between">
               <p className="text-xs text-gray-500">
-                {internal
-                  ? 'Internal notes do not change the ticket status.'
-                  : 'Sending a reply moves the ticket to "Waiting on customer".'}
+                Sending a reply sends a message directly to the user chat.
               </p>
               <button
                 type="button"
@@ -273,7 +319,7 @@ export default function SupportTicket() {
                 className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
               >
                 <Send size={14} />
-                {internal ? 'Save note' : 'Send reply'}
+                Send reply
               </button>
             </div>
           </div>
@@ -289,6 +335,7 @@ export default function SupportTicket() {
                   onChange={onStatusChange}
                   options={statusOptions}
                   style={{ width: '100%' }}
+                  disabled={updating}
                 />
               </Field>
               <Field label="Priority">
@@ -297,12 +344,13 @@ export default function SupportTicket() {
                   onChange={onPriorityChange}
                   options={priorityOptions}
                   style={{ width: '100%' }}
+                  disabled={updating}
                 />
               </Field>
               <Field label="Assignee">
                 <Select
                   allowClear
-                  value={ticket.assigneeId}
+                  value={assignedToId}
                   onChange={(v) => onAssign(v ?? null)}
                   placeholder="Unassigned"
                   options={supportAgents.map((a) => ({
@@ -310,17 +358,13 @@ export default function SupportTicket() {
                     label: a.name,
                   }))}
                   style={{ width: '100%' }}
+                  disabled={updating}
                 />
               </Field>
               <Field label="Category">
-                <span className="inline-flex items-center gap-1.5 rounded-md bg-surface-elevated px-2.5 py-1 text-sm text-gray-800">
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-surface-elevated px-2.5 py-1 text-sm text-gray-800 capitalize">
                   <Tag size={14} className="text-gray-500" />
-                  {categoryLabels[ticket.category]}
-                </span>
-              </Field>
-              <Field label="Channel">
-                <span className="text-sm text-gray-800">
-                  {channelLabels[ticket.channel]}
+                  {categoryLabels[ticket.category as keyof typeof categoryLabels] || ticket.category}
                 </span>
               </Field>
             </div>
@@ -329,56 +373,27 @@ export default function SupportTicket() {
           <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
             <div className="flex items-center gap-2">
               <UserIcon size={16} className="text-gray-500" />
-              <h2 className="text-sm font-semibold text-gray-900">Customer</h2>
+              <h2 className="text-sm font-semibold text-gray-900">User Details</h2>
             </div>
-            {customer ? (
+            {ticket.user ? (
               <div className="mt-3 space-y-1">
-                <Link
-                  to={`/dashboard/users/${customer.id}`}
-                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900 hover:text-brand"
-                >
-                  {customer.name}
-                  <ExternalLink size={12} />
-                </Link>
-                <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                  <Mail size={12} />
-                  {customer.email}
-                </div>
-                <div className="text-xs text-gray-500">{customer.phone}</div>
+                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                  {ticket.user.name}
+                </span>
+                {ticket.user.email && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                    <Mail size={12} />
+                    {ticket.user.email}
+                  </div>
+                )}
+                {ticket.user.phone && (
+                  <div className="text-xs text-gray-500">{ticket.user.phone}</div>
+                )}
               </div>
             ) : (
-              <p className="mt-2 text-sm text-gray-500">Customer not found.</p>
+              <p className="mt-2 text-sm text-gray-500">User details not found.</p>
             )}
           </div>
-
-          {ticket.orderId && (
-            <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
-              <div className="flex items-center gap-2">
-                <Package size={16} className="text-gray-500" />
-                <h2 className="text-sm font-semibold text-gray-900">
-                  Related order
-                </h2>
-              </div>
-              {order ? (
-                <div className="mt-3">
-                  <Link
-                    to={`/dashboard/orders/${order.id}`}
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900 hover:text-brand"
-                  >
-                    {order.id}
-                    <ExternalLink size={12} />
-                  </Link>
-                  <div className="mt-1 text-xs text-gray-500">
-                    Placed {order.placedAt}
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-2 text-sm text-gray-500">
-                  Order reference: {ticket.orderId}
-                </p>
-              )}
-            </div>
-          )}
         </div>
       </section>
     </div>
