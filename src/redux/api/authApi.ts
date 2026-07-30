@@ -39,6 +39,7 @@ export interface ResetPasswordPayload {
 
 export interface UpdateMyProfilePayload {
   name?: string
+  phone?: string
   profileImage?: File | null
 }
 
@@ -193,9 +194,10 @@ const authApi = baseApi.injectEndpoints({
 
     // ── Update My Profile ────────────────────────────────────────────────────
     updateMyProfile: builder.mutation<ApiResponse<ProfileData>, UpdateMyProfilePayload>({
-      query: ({ name, profileImage }) => {
+      query: ({ name, phone, profileImage }) => {
         const formData = new FormData()
         if (name) formData.append('name', name)
+        if (phone !== undefined) formData.append('phone', phone)
         if (profileImage) formData.append('profileImage', profileImage)
         return {
           url: '/users/profile',

@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { imageUrl } from '../../lib/imageUrl'
 import { App, Input, Spin } from 'antd'
-import { useChangePasswordMutation } from '../../redux/api/authApi'
+import { imageUrl } from '../../lib/imageUrl'
+import {
+  useChangePasswordMutation,
+  useGetMyProfileQuery,
+  useUpdateMyProfileMutation,
+} from '../../redux/api/authApi'
 import {
   useDeleteFAQMutation,
   useGetAllFAQQuery,
@@ -142,33 +146,73 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 function ProfileSection() {
   const { message } = App.useApp()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [avatar, setAvatar] = useState<string | null>(null)
-  const [firstName, setFirstName] = useState('Super')
-  const [lastName, setLastName] = useState('Admin')
-  const [email, setEmail] = useState('admin@tianguislive.com')
-  const [phone, setPhone] = useState('+1 (555) 123-4567')
+
+  const { data: profileRes, isLoading: loadingProfile } = useGetMyProfileQuery()
+  const [updateMyProfile, { isLoading: isUpdating }] = useUpdateMyProfileMutation()
+
+  const profile = profileRes?.data
+
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [role, setRole] = useState('')
+  // console.log('phone:', phone)
+
+  useEffect(() => {
+    if (profile) {
+      setName(profile.name || '')
+      setEmail(profile.email || '')
+      setPhone(profile.phone || '')
+      setRole(profile.role || 'Global Access')
+      if (profile.profileImage) {
+        setAvatarPreview(imageUrl(profile.profileImage))
+      }
+    }
+  }, [profile])
 
   const onAvatarChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    setSelectedFile(file)
     const reader = new FileReader()
     reader.onload = () => {
-      setAvatar(reader.result as string)
+      setAvatarPreview(reader.result as string)
     }
     reader.readAsDataURL(file)
   }
 
-  const save = () => {
-    if (!firstName.trim() || !lastName.trim()) {
+  const save = async () => {
+    const trimmedName = name.trim()
+    if (!trimmedName) {
       message.warning('Name is required.')
       return
     }
-    if (!email.trim()) {
-      message.warning('Email is required.')
-      return
+
+    try {
+      await updateMyProfile({
+        name: trimmedName,
+        phone: phone.trim(),
+        profileImage: selectedFile,
+      }).unwrap()
+      message.success('Profile updated successfully.')
+    } catch (err: any) {
+      message.error(err?.data?.message || 'Failed to update profile.')
     }
-    message.success('Profile updated.')
   }
+
+  if (loadingProfile) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Spin size="large" />
+      </div>
+    )
+  }
+
+  const displayAvatar = avatarPreview || (profile?.profileImage ? imageUrl(profile.profileImage) : null)
+  const displayRole = role ? role.replace('_', ' ').toUpperCase() : 'SUPER ADMIN'
 
   return (
     <>
@@ -181,14 +225,14 @@ function ProfileSection() {
         <div className="flex items-center gap-5">
           <div className="relative">
             <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-surface-elevated text-xl font-semibold text-gray-700">
-              {avatar ? (
+              {displayAvatar ? (
                 <img
-                  src={imageUrl(avatar)}
+                  src={displayAvatar}
                   alt="Profile"
                   className="h-full w-full object-cover"
                 />
               ) : (
-                `${firstName.charAt(0)}${lastName.charAt(0)}`
+                (name || 'A').charAt(0).toUpperCase()
               )}
             </div>
             <button
@@ -209,9 +253,9 @@ function ProfileSection() {
           </div>
           <div>
             <div className="text-base font-semibold text-gray-900">
-              {firstName} {lastName}
+              {name || 'Admin'}
             </div>
-            <div className="text-sm text-gray-700">Global Access</div>
+            <div className="text-sm text-gray-700">{displayRole}</div>
             <p className="mt-1 text-xs text-gray-500">
               Click the camera icon to upload a new photo
             </p>
@@ -219,22 +263,14 @@ function ProfileSection() {
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2">
-          <div>
-            <FieldLabel>First Name</FieldLabel>
+          <div className="md:col-span-2">
+            <FieldLabel>Name</FieldLabel>
             <Input
               className="mt-2"
               size="large"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-            />
-          </div>
-          <div>
-            <FieldLabel>Last Name</FieldLabel>
-            <Input
-              className="mt-2"
-              size="large"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter name"
             />
           </div>
           <div className="md:col-span-2">
@@ -244,7 +280,7 @@ function ProfileSection() {
               size="large"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              disabled
             />
           </div>
           <div className="md:col-span-2">
@@ -254,12 +290,13 @@ function ProfileSection() {
               size="large"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              placeholder="Enter phone number"
             />
           </div>
           <div className="md:col-span-2">
             <FieldLabel>Role</FieldLabel>
             <div className="mt-2 flex h-12 items-center rounded-md bg-surface-elevated px-3 text-sm text-gray-800">
-              <span className="font-medium">Global Access</span>
+              <span className="font-medium">{displayRole}</span>
               <span className="ml-2 text-xs text-gray-400">(Read-only)</span>
             </div>
           </div>
@@ -270,9 +307,10 @@ function ProfileSection() {
         <button
           type="button"
           onClick={save}
-          className="inline-flex h-11 items-center rounded-md bg-brand px-6 text-sm font-semibold text-white transition-colors hover:bg-brand-hover"
+          disabled={isUpdating}
+          className="inline-flex h-11 items-center rounded-md bg-brand px-6 text-sm font-semibold text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Save Changes
+          {isUpdating ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
     </>

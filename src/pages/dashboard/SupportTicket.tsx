@@ -4,7 +4,6 @@ import { App, Input, Select, Spin } from 'antd'
 import {
   ArrowLeft,
   CheckCircle2,
-  ExternalLink,
   Mail,
   MessageSquare,
   RotateCcw,
