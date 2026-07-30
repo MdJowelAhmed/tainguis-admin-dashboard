@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { App, Input, Modal } from 'antd'
-import { addFaq, updateFaq, type FaqItem } from './faqStore'
+import {
+  useCreateFAQMutation,
+  useUpdateFAQMutation,
+  type FaqItem,
+} from '../../redux/api/settingsApi'
 
 type Props = {
   open: boolean
@@ -13,6 +17,9 @@ export default function FaqFormModal({ open, faq, onClose }: Props) {
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState('')
 
+  const [createFAQ, { isLoading: isCreating }] = useCreateFAQMutation()
+  const [updateFAQ, { isLoading: isUpdating }] = useUpdateFAQMutation()
+
   useEffect(() => {
     if (!open) return
     if (faq) {
@@ -24,20 +31,24 @@ export default function FaqFormModal({ open, faq, onClose }: Props) {
     }
   }, [open, faq])
 
-  const submit = () => {
+  const submit = async () => {
     const q = question.trim()
     const a = answer.trim()
     if (!q) return message.warning('Question is required.')
     if (!a) return message.warning('Answer is required.')
 
-    if (faq) {
-      updateFaq(faq.id, { question: q, answer: a })
-      message.success('FAQ updated.')
-    } else {
-      addFaq(q, a)
-      message.success('FAQ added.')
+    try {
+      if (faq) {
+        await updateFAQ({ id: faq._id, question: q, answer: a }).unwrap()
+        message.success('FAQ updated.')
+      } else {
+        await createFAQ({ question: q, answer: a }).unwrap()
+        message.success('FAQ added.')
+      }
+      onClose()
+    } catch (err: any) {
+      message.error(err?.data?.message || 'Failed to save FAQ.')
     }
-    onClose()
   }
 
   return (
@@ -46,6 +57,7 @@ export default function FaqFormModal({ open, faq, onClose }: Props) {
       title={faq ? 'Edit FAQ' : 'Add FAQ'}
       okText={faq ? 'Save changes' : 'Add FAQ'}
       onOk={submit}
+      confirmLoading={isCreating || isUpdating}
       onCancel={onClose}
       destroyOnClose
     >

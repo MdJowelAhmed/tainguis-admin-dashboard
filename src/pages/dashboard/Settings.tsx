@@ -2,9 +2,12 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { imageUrl } from '../../lib/imageUrl'
 import { App, Input, Spin } from 'antd'
 import {
+  useDeleteFAQMutation,
+  useGetAllFAQQuery,
   useGetPrivacyPolicyQuery,
   useGetTermsAndConditionsQuery,
   useUpdateDisclaimerMutation,
+  type FaqItem,
 } from '../../redux/api/settingsApi'
 import {
   Camera,
@@ -28,11 +31,6 @@ import {
   useContent,
   type ContentKey,
 } from '../../components/settings/contentStore'
-import {
-  deleteFaq,
-  useFaqs,
-  type FaqItem,
-} from '../../components/settings/faqStore'
 import FaqFormModal from '../../components/settings/FaqFormModal'
 
 type SectionKey =
@@ -357,9 +355,12 @@ function PasswordSection() {
 }
 
 function FaqSection() {
-  const faqs = useFaqs()
+  const { data: faqRes, isLoading } = useGetAllFAQQuery()
+  const [deleteFAQ] = useDeleteFAQMutation()
+
+  const faqs = faqRes?.data ?? []
   const { modal, message } = App.useApp()
-  const [openId, setOpenId] = useState<string | null>(faqs[0]?.id ?? null)
+  const [openId, setOpenId] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<FaqItem | null>(null)
 
@@ -379,11 +380,23 @@ function FaqSection() {
       content: f.question,
       okText: 'Delete',
       okButtonProps: { danger: true },
-      onOk: () => {
-        deleteFaq(f.id)
-        message.success('FAQ deleted.')
+      onOk: async () => {
+        try {
+          await deleteFAQ(f._id).unwrap()
+          message.success('FAQ deleted.')
+        } catch (err: any) {
+          message.error(err?.data?.message || 'Failed to delete FAQ.')
+        }
       },
     })
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Spin size="large" />
+      </div>
+    )
   }
 
   return (
@@ -416,13 +429,13 @@ function FaqSection() {
       ) : (
         <ul className="divide-y divide-surface-border">
           {faqs.map((f) => {
-            const isOpen = openId === f.id
+            const isOpen = openId === f._id
             return (
-              <li key={f.id}>
+              <li key={f._id}>
                 <div className="flex items-center gap-2 px-6 py-3 hover:bg-surface-elevated">
                   <button
                     type="button"
-                    onClick={() => setOpenId(isOpen ? null : f.id)}
+                    onClick={() => setOpenId(isOpen ? null : f._id)}
                     className="flex flex-1 items-center justify-between gap-3 text-left"
                   >
                     <span className="text-sm font-medium text-gray-900">
