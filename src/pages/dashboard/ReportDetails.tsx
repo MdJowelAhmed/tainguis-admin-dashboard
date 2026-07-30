@@ -4,11 +4,11 @@ import { App, Input, Modal, Spin, Alert } from 'antd'
 import {
   ArrowLeft,
   Ban,
+  CheckCircle2,
   CircleSlash,
   ExternalLink,
   Flag,
   MessageSquareWarning,
-  RotateCcw,
   ShieldCheck,
   X,
 } from 'lucide-react'
@@ -16,7 +16,6 @@ import {
   useGetReportByIdQuery,
   useGetReportsHistoryQuery,
   useReportResolveMutation,
-  useUpdateReportStatusMutation,
   type ReportActionTaken,
 } from '../../redux/api/reportApi'
 import { reasonLabels, type ReportReason } from '../../components/reports/reportsData'
@@ -74,7 +73,6 @@ export default function ReportDetails() {
   const historyList = historyRes?.data ?? []
 
   const [reportResolve, { isLoading: isResolving }] = useReportResolveMutation()
-  const [updateReportStatus, { isLoading: isUpdating }] = useUpdateReportStatusMutation()
 
   const [resolutionType, setResolutionType] = useState<ResolutionType | null>(null)
   const [note, setNote] = useState('')
@@ -137,30 +135,13 @@ export default function ReportDetails() {
     }
   }
 
-  const handleReopen = () => {
-    modal.confirm({
-      title: 'Reopen this report?',
-      content:
-        'The report will go back to the pending queue.',
-      okText: 'Reopen',
-      onOk: async () => {
-        try {
-          await updateReportStatus({ id: report._id, status: 'pending' }).unwrap()
-          message.success('Report reopened.')
-        } catch {
-          message.error('Failed to reopen report.')
-        }
-      },
-    })
-  }
-
   const isResolved = report.status !== 'pending'
   const cfg = resolutionType ? resolutionConfig[resolutionType] : null
 
   const reasonText = reasonLabels[report.reason as ReportReason] || report.reason.replace(/_/g, ' ')
 
   return (
-    <Spin spinning={isResolving || isUpdating}>
+    <Spin spinning={isResolving}>
       <div className="flex flex-col gap-6 py-6">
         <div>
           <button
@@ -216,12 +197,14 @@ export default function ReportDetails() {
                   />
                 </>
               ) : (
-                <ActionButton
-                  icon={RotateCcw}
-                  label="Reopen report"
-                  variant="ghost"
-                  onClick={handleReopen}
-                />
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex h-10 items-center gap-2 rounded-md bg-gray-200 px-4 text-sm font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <CheckCircle2 size={14} />
+                  Already resolved
+                </button>
               )}
             </div>
           </div>
