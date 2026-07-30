@@ -38,7 +38,7 @@ interface OrderRecord {
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
-  currency: 'USD',
+  currency: 'MXN',
   maximumFractionDigits: 0,
 })
 

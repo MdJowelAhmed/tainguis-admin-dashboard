@@ -21,7 +21,7 @@ import type { OrderStatus, PaymentStatus } from '../../components/users/usersDat
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
-  currency: 'USD',
+  currency: 'MXN',
   maximumFractionDigits: 0,
 })
 

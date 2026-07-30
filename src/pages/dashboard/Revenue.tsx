@@ -225,7 +225,7 @@ export default function Revenue() {
                   fontSize={11}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(v: number) => `$${v}`}
+                  tickFormatter={(v: number) => `MX$${v}`}
                 />
                 <Tooltip
                   cursor={false}

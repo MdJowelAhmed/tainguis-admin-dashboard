@@ -34,7 +34,7 @@ import { imageUrl } from '../../lib/imageUrl'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
-  currency: 'USD',
+  currency: 'MXN',
   maximumFractionDigits: 0,
 })
 
