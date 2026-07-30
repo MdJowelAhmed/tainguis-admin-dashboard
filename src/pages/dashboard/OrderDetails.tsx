@@ -17,7 +17,6 @@ import {
   useGetAllOrdersQuery,
   useUpdateOrderStatusMutation,
   useUpdateOrderPaymentStatusMutation,
-  useUpdateOrderTrackingMutation,
 } from '../../redux/api/orderApi'
 import type { OrderListItem } from '../../redux/api/orderApi'
 import {
@@ -78,10 +77,7 @@ export default function OrderDetails() {
 
   const [updateOrderStatus, { isLoading: isUpdatingStatus }] = useUpdateOrderStatusMutation()
   const [updateOrderPaymentStatus, { isLoading: isUpdatingPayment }] = useUpdateOrderPaymentStatusMutation()
-  const [updateOrderTracking, { isLoading: isUpdatingTracking }] = useUpdateOrderTrackingMutation()
 
-  const [trackingOpen, setTrackingOpen] = useState(false)
-  const [trackingDraft, setTrackingDraft] = useState('')
   const [refundOpen, setRefundOpen] = useState(false)
   const [refundNote, setRefundNote] = useState('')
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -128,22 +124,6 @@ export default function OrderDetails() {
       message.success(`Payment marked ${paymentStatusLabel[status as PaymentStatus] || status}.`)
     } catch {
       message.error('Failed to update payment status.')
-    }
-  }
-
-  const submitTracking = async () => {
-    if (!trackingDraft.trim()) {
-      message.warning('Enter a tracking number.')
-      return
-    }
-    try {
-      await updateOrderTracking({ id: order._id, trackingNumber: trackingDraft.trim() }).unwrap()
-      setLocalOrder({ ...order, trackingNumber: trackingDraft.trim() })
-      message.success('Tracking number updated.')
-      setTrackingOpen(false)
-      setTrackingDraft('')
-    } catch {
-      message.error('Failed to update tracking.')
     }
   }
 
@@ -198,7 +178,7 @@ export default function OrderDetails() {
       : 'Address not available'
 
   return (
-    <Spin spinning={isUpdatingStatus || isUpdatingPayment || isUpdatingTracking}>
+    <Spin spinning={isUpdatingStatus || isUpdatingPayment}>
       <div className="flex flex-col gap-6 py-6">
         <div>
           <button
@@ -231,15 +211,6 @@ export default function OrderDetails() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setTrackingOpen(true)}
-                disabled={isFinal}
-                className="inline-flex h-10 items-center gap-2 rounded-md border border-surface-border bg-white px-4 text-sm font-medium text-gray-800 hover:bg-surface-elevated disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Truck size={14} />
-                {order.trackingNumber ? 'Update tracking' : 'Add tracking'}
-              </button>
               {!isFinal && (
                 <button
                   type="button"
@@ -285,6 +256,7 @@ export default function OrderDetails() {
                   value={order.paymentStatus}
                   onChange={onPaymentChange}
                   options={paymentOptions}
+                  disabled={isFinal}
                   style={{ width: '100%' }}
                 />
               }
@@ -435,22 +407,6 @@ export default function OrderDetails() {
             </div>
           </div>
         </section>
-
-        <Modal
-          open={trackingOpen}
-          title="Tracking number"
-          okText="Save"
-          onOk={submitTracking}
-          onCancel={() => setTrackingOpen(false)}
-          destroyOnClose
-        >
-          <Input
-            autoFocus
-            value={trackingDraft}
-            placeholder={order.trackingNumber ?? 'e.g. TIANG-1234-MX'}
-            onChange={(e) => setTrackingDraft(e.target.value)}
-          />
-        </Modal>
 
         <Modal
           open={refundOpen}
