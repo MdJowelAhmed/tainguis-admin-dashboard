@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { imageUrl } from '../../lib/imageUrl'
 import { App, Input, Spin } from 'antd'
+import { useChangePasswordMutation } from '../../redux/api/authApi'
 import {
   useDeleteFAQMutation,
   useGetAllFAQQuery,
@@ -284,7 +285,9 @@ function PasswordSection() {
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
 
-  const save = () => {
+  const [changePassword, { isLoading }] = useChangePasswordMutation()
+
+  const save = async () => {
     if (!current || !next || !confirm) {
       message.warning('All fields are required.')
       return
@@ -297,10 +300,20 @@ function PasswordSection() {
       message.warning('New passwords do not match.')
       return
     }
-    setCurrent('')
-    setNext('')
-    setConfirm('')
-    message.success('Password updated.')
+
+    try {
+      await changePassword({
+        currentPassword: current,
+        newPassword: next,
+        confirmPassword: confirm,
+      }).unwrap()
+      setCurrent('')
+      setNext('')
+      setConfirm('')
+      message.success('Password updated successfully.')
+    } catch (err: any) {
+      message.error(err?.data?.message || 'Failed to update password.')
+    }
   }
 
   return (
@@ -345,9 +358,10 @@ function PasswordSection() {
         <button
           type="button"
           onClick={save}
-          className="inline-flex h-11 items-center rounded-md bg-brand px-6 text-sm font-semibold text-white transition-colors hover:bg-brand-hover"
+          disabled={isLoading}
+          className="inline-flex h-11 items-center rounded-md bg-brand px-6 text-sm font-semibold text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Update Password
+          {isLoading ? 'Updating...' : 'Update Password'}
         </button>
       </div>
     </>
