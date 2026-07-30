@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Input, Select, Table } from 'antd'
+import { Select, Table } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   AlertOctagon,
@@ -8,8 +8,8 @@ import {
   Clock,
   Eye,
   LifeBuoy,
-  Search,
 } from 'lucide-react'
+import SearchInput from '../../components/ui/SearchInput'
 import {
   useGetAllSupportTicketQuery,
   type SupportTicketItem,
@@ -197,16 +197,14 @@ export default function Support() {
 
       <section className="rounded-2xl border border-surface-border bg-surface-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-surface-border p-4">
-          <Input
-            allowClear
+          <SearchInput
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value)
+            onChange={(val) => {
+              setSearch(val)
               setPage(1)
             }}
             placeholder="Search by title, ticket id..."
-            prefix={<Search size={16} className="text-gray-400" />}
-            className="max-w-[340px]"
+            maxWidth={340}
           />
           <Select
             value={statusFilter}

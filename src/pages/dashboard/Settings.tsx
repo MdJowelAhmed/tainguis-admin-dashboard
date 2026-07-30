@@ -20,7 +20,6 @@ import {
   ChevronDown,
   FileText,
   HelpCircle,
-  Info,
   Lock,
   Pencil,
   Plus,

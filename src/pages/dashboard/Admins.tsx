@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { App, Dropdown, Input, Select, Table, Tooltip, Spin, Alert } from 'antd'
+import { App, Dropdown, Select, Table, Tooltip, Spin, Alert } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
   MoreHorizontal,
   Pencil,
   Plus,
-  Search,
   Trash2,
 } from 'lucide-react'
+import SearchInput from '../../components/ui/SearchInput'
 import {
   useGetAllControllerQuery,
   useDeleteControllerMutation,
@@ -286,13 +286,11 @@ export default function Admins() {
 
       <section className="rounded-2xl border border-surface-border bg-surface-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-surface-border p-4">
-          <Input
-            allowClear
+          <SearchInput
             value={search}
-            onChange={(e) => updateParams({ searchTerm: e.target.value, page: null })}
+            onChange={(val) => updateParams({ searchTerm: val, page: null })}
             placeholder="Search by name, email, or phone"
-            prefix={<Search size={16} className="text-gray-400" />}
-            className="max-w-[320px]"
+            maxWidth={320}
           />
           <Select
             value={roleFilter}

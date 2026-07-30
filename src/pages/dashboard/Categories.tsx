@@ -7,10 +7,10 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  Search,
   Trash2,
   X,
 } from 'lucide-react'
+import SearchInput from '../../components/ui/SearchInput'
 import {
   useGetAllCategoriesQuery,
   useDeleteCategoryMutation,
@@ -229,13 +229,11 @@ export default function Categories() {
 
       <section className="rounded-2xl border border-surface-border bg-surface-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-surface-border p-4">
-          <Input
-            allowClear
+          <SearchInput
             value={search}
-            onChange={(e) => updateParams({ searchTerm: e.target.value, page: null })}
+            onChange={(val) => updateParams({ searchTerm: val, page: null })}
             placeholder="Search by name, slug, or subcategory"
-            prefix={<Search size={16} className="text-gray-400" />}
-            className="max-w-[360px]"
+            maxWidth={360}
           />
           <Select
             value={statusFilter}
