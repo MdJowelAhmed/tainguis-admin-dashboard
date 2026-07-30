@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Mail,
   MessageSquare,
-  RotateCcw,
   Send,
   Tag,
   User as UserIcon,
@@ -145,15 +144,12 @@ export default function SupportTicket() {
     }
   }
 
-  const resolveOrReopen = () => {
-    if (ticket.status === 'resolved' || ticket.status === 'closed') {
-      handleUpdate({ status: 'in_progress' })
-    } else {
-      handleUpdate({ status: 'resolved' })
-    }
-  }
-
   const isFinal = ticket.status === 'resolved' || ticket.status === 'closed'
+
+  const handleMarkResolved = () => {
+    if (isFinal) return
+    handleUpdate({ status: 'resolved' })
+  }
 
   return (
     <div className="flex flex-col gap-6 py-6">
@@ -188,25 +184,16 @@ export default function SupportTicket() {
 
           <button
             type="button"
-            onClick={resolveOrReopen}
-            disabled={updating}
-            className={`inline-flex h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold text-white transition-colors disabled:opacity-50 ${
+            onClick={handleMarkResolved}
+            disabled={updating || isFinal}
+            className={`inline-flex h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
               isFinal
-                ? 'bg-gray-700 hover:bg-gray-800'
-                : 'bg-green-600 hover:bg-green-700'
+                ? 'bg-gray-200 text-gray-700'
+                : 'bg-green-600 text-white hover:bg-green-700'
             }`}
           >
-            {isFinal ? (
-              <>
-                <RotateCcw size={14} />
-                Reopen ticket
-              </>
-            ) : (
-              <>
-                <CheckCircle2 size={14} />
-                Mark resolved
-              </>
-            )}
+            <CheckCircle2 size={14} />
+            {isFinal ? 'Already resolved' : 'Mark resolved'}
           </button>
         </div>
       </section>
