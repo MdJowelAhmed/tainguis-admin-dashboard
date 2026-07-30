@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { message } from 'antd'
 import Login from './pages/auth/Login'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import CheckEmail from './pages/auth/CheckEmail'
@@ -23,8 +25,26 @@ import Live from './pages/dashboard/Live'
 import LiveDetails from './pages/dashboard/LiveDetails'
 import Categories from './pages/dashboard/Categories'
 import CommissionSettings from './pages/dashboard/CommissionSettings'
+import { extractErrorMessage } from './utils/errorUtils'
 
 export default function App() {
+  useEffect(() => {
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      // If error was already handled by RTK Query middleware, skip duplicate toast
+      if (event.reason?.name === 'RTKQueryError') return
+
+      const errMsg = extractErrorMessage(event.reason)
+      if (errMsg) {
+        message.error(errMsg)
+      }
+    }
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection)
+    return () => {
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+    }
+  }, [])
+
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />

@@ -11,6 +11,7 @@ import {
 } from 'redux-persist'
 import { baseApi } from './baseApi'
 import authReducer from './slice/authSlice'
+import { rtkQueryErrorLogger } from './middleware/errorMiddleware'
 
 // ─── Custom Storage ───────────────────────────────────────────────────────────
 // redux-persist/lib/storage default export doesn't resolve correctly with
@@ -61,7 +62,7 @@ export const store = configureStore({
         // Required: ignore redux-persist action types
         ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER],
       },
-    }).concat(baseApi.middleware),
+    }).concat(baseApi.middleware, rtkQueryErrorLogger),
   devTools: import.meta.env.DEV,
 })
 
