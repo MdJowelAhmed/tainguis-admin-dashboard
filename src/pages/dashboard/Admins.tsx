@@ -25,7 +25,9 @@ import { imageUrl } from '../../lib/imageUrl'
 
 const roleStyles: Record<string, string> = {
   super_admin: 'bg-brand/10 text-brand ring-brand/20',
+  admin: 'bg-indigo-100 text-indigo-700 ring-indigo-200',
   manager: 'bg-blue-100 text-blue-700 ring-blue-200',
+  support_agent: 'bg-green-100 text-green-700 ring-green-200',
   support: 'bg-green-100 text-green-700 ring-green-200',
   custom: 'bg-amber-100 text-amber-700 ring-amber-200',
 }
@@ -298,10 +300,12 @@ export default function Admins() {
             style={{ width: 170 }}
             options={[
               { value: 'all', label: 'All roles' },
-              ...(Object.keys(roleLabels) as AdminRole[]).map((r) => ({
-                value: r,
-                label: roleLabels[r],
-              })),
+              ...(Object.keys(roleLabels) as AdminRole[])
+                .filter((r) => r !== 'support')
+                .map((r) => ({
+                  value: r,
+                  label: roleLabels[r],
+                })),
             ]}
           />
           <Select

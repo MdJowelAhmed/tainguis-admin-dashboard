@@ -7,7 +7,13 @@ export type AdminPermission =
   | 'settings'
   | 'support'
 
-export type AdminRole = 'super_admin' | 'manager' | 'support' | 'custom'
+export type AdminRole =
+  | 'super_admin'
+  | 'admin'
+  | 'manager'
+  | 'support_agent'
+  | 'support'
+  | 'custom'
 
 export type AdminStatus = 'active' | 'suspended'
 
@@ -56,14 +62,18 @@ export const allPermissions: AdminPermission[] = [
 
 export const roleLabels: Record<AdminRole, string> = {
   super_admin: 'Super Admin',
+  admin: 'Admin',
   manager: 'Manager',
+  support_agent: 'Support agent',
   support: 'Support agent',
   custom: 'Custom',
 }
 
 export const rolePresets: Record<AdminRole, AdminPermission[]> = {
   super_admin: allPermissions,
+  admin: ['dashboard_overview', 'user_management', 'orders', 'support', 'report', 'broadcast', 'settings'],
   manager: ['dashboard_overview', 'user_management', 'orders', 'support', 'report', 'broadcast'],
+  support_agent: ['dashboard_overview', 'support', 'user_management'],
   support: ['dashboard_overview', 'support', 'user_management'],
   custom: [],
 }

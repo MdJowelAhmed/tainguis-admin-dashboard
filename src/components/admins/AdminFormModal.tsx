@@ -39,7 +39,7 @@ function arraysEqual(a: AdminPermission[], b: AdminPermission[]) {
 }
 
 function matchRole(perms: AdminPermission[]): AdminRole {
-  for (const role of ['super_admin', 'manager', 'support'] as AdminRole[]) {
+  for (const role of ['super_admin', 'admin', 'manager', 'support_agent'] as AdminRole[]) {
     if (rolePresets[role] && arraysEqual(perms, rolePresets[role])) return role
   }
   return 'custom'
@@ -68,7 +68,8 @@ export default function AdminFormModal({
     if (mode === 'edit' && admin) {
       setName(admin.user?.name ?? '')
       setEmail(admin.user?.email ?? '')
-      setRole((admin.role as AdminRole) || 'custom')
+      const r = (admin.role as AdminRole) === 'support' ? 'support_agent' : (admin.role as AdminRole) || 'custom'
+      setRole(r)
       setPermissions((admin.permissions as AdminPermission[]) ?? [])
       setPassword('')
     } else {
@@ -109,10 +110,12 @@ export default function AdminFormModal({
     if (mode === 'create' && password.length > 0 && password.length < 6)
       return message.warning('Password must be at least 6 characters.')
 
+    const sendRole = role === 'support' ? 'support_agent' : role
+
     const payload = {
       name: name.trim(),
       email: email.trim(),
-      role,
+      role: sendRole,
       permissions,
       ...(password.trim() ? { password: password.trim() } : {}),
     }
@@ -176,10 +179,12 @@ export default function AdminFormModal({
                 onChange={onRoleChange}
                 disabled={isSuper}
                 style={{ width: '100%' }}
-                options={(Object.keys(roleLabels) as AdminRole[]).map((r) => ({
-                  value: r,
-                  label: roleLabels[r],
-                }))}
+                options={(Object.keys(roleLabels) as AdminRole[])
+                  .filter((r) => r !== 'support')
+                  .map((r) => ({
+                    value: r,
+                    label: roleLabels[r],
+                  }))}
               />
             </Field>
           </div>
