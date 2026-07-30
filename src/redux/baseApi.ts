@@ -37,8 +37,9 @@ const baseQueryWithReauth: BaseQueryFn<
   const result = await rawBaseQuery(args, api, extraOptions)
 
   if (result.error?.status === 401) {
-    // Token expired / invalid — force logout
+    // Token expired / invalid — force logout and purge cache
     api.dispatch(clearCredentials())
+    api.dispatch(baseApi.util.resetApiState())
   }
 
   return result

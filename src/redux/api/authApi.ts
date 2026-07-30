@@ -77,6 +77,8 @@ const authApi = baseApi.injectEndpoints({
           const token = data?.data?.accessToken
           const role = data?.data?.role
           if (token) {
+            // Reset old query cache to prevent stale user data cross-contamination
+            dispatch(baseApi.util.resetApiState())
             // Store token in redux (redux-persist will sync to localStorage)
             dispatch(setCredentials({ token, role }))
           }
@@ -107,8 +109,9 @@ const authApi = baseApi.injectEndpoints({
         try {
           await queryFulfilled
         } finally {
-          // Always clear credentials — even if API call fails
+          // Clear credentials and completely purge RTK Query cache memory
           dispatch(clearCredentials())
+          dispatch(baseApi.util.resetApiState())
         }
       },
       invalidatesTags: ['Auth'],
