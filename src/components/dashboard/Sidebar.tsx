@@ -89,16 +89,16 @@ export default function Sidebar({ user, onLogout }: Props) {
 
   const navItems: NavItem[] = filteredNavItems.map((item) => {
     if (item.to === '/dashboard/reports' && pendingReports > 0) {
-      return { ...item, badge: pendingReports }
+     
     }
     if (item.to === '/dashboard/support' && openTickets > 0) {
-      return { ...item, badge: openTickets }
+     
     }
     if (item.to === '/dashboard/notifications' && unreadNotifications > 0) {
       return { ...item, badge: unreadNotifications }
     }
     if (item.to === '/dashboard/live' && liveNow > 0) {
-      return { ...item, badge: liveNow }
+     
     }
     return item
   })

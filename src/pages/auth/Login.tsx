@@ -19,7 +19,7 @@ const demoCredentials: DemoCredential[] = [
   {
     label: 'Super Admin',
     email: 'suhag10102@gmail.com',
-    password: 'admin1234',
+    password: 'Test@123',
   },
 ]
 
