@@ -21,28 +21,31 @@ import { useReports } from '../reports/reportsStore'
 import { useTickets } from '../support/supportStore'
 import { useNotifications } from '../notifications/notificationsStore'
 import { useStreams } from '../live/liveStore'
+import { useGetMyProfileQuery } from '../../redux/api/authApi'
+import { imageUrl } from '../../lib/imageUrl'
 
 type NavItem = {
   label: string
   to: string
   icon: LucideIcon
   badge?: number
+  permissionKeys: string[]
 }
 
 const baseNavItems: Omit<NavItem, 'badge'>[] = [
-  { label: 'Dashboard', to: '/dashboard', icon: LayoutGrid },
-  { label: 'Users', to: '/dashboard/users', icon: UsersIcon },
-  { label: 'Live', to: '/dashboard/live', icon: Radio },
-  { label: 'Orders', to: '/dashboard/orders', icon: ShoppingBag },
-  { label: 'Categories', to: '/dashboard/categories', icon: Package },
-  { label: 'Revenue', to: '/dashboard/revenue', icon: TrendingUp },
-  { label: 'Broadcast', to: '/dashboard/broadcast', icon: Megaphone },
-  { label: 'Support', to: '/dashboard/support', icon: LifeBuoy },
-  { label: 'Reports', to: '/dashboard/reports', icon: Flag },
-  { label: 'Notifications', to: '/dashboard/notifications', icon: Bell },
-  { label: 'Commission', to: '/dashboard/commission', icon: Percent },
-  { label: 'Admins', to: '/dashboard/admins', icon: ShieldCheck },
-  { label: 'Settings', to: '/dashboard/settings', icon: SettingsIcon },
+  { label: 'Dashboard', to: '/dashboard', icon: LayoutGrid, permissionKeys: ['dashboard_overview', 'dashboard'] },
+  { label: 'Users', to: '/dashboard/users', icon: UsersIcon, permissionKeys: ['user_management', 'users'] },
+  { label: 'Live', to: '/dashboard/live', icon: Radio, permissionKeys: ['live'] },
+  { label: 'Orders', to: '/dashboard/orders', icon: ShoppingBag, permissionKeys: ['orders'] },
+  { label: 'Categories', to: '/dashboard/categories', icon: Package, permissionKeys: ['categories'] },
+  { label: 'Revenue', to: '/dashboard/revenue', icon: TrendingUp, permissionKeys: ['revenue'] },
+  { label: 'Broadcast', to: '/dashboard/broadcast', icon: Megaphone, permissionKeys: ['broadcast'] },
+  { label: 'Support', to: '/dashboard/support', icon: LifeBuoy, permissionKeys: ['support'] },
+  { label: 'Reports', to: '/dashboard/reports', icon: Flag, permissionKeys: ['report', 'reports'] },
+  { label: 'Notifications', to: '/dashboard/notifications', icon: Bell, permissionKeys: ['notifications'] },
+  { label: 'Commission', to: '/dashboard/commission', icon: Percent, permissionKeys: ['commission'] },
+  { label: 'Admins', to: '/dashboard/admins', icon: ShieldCheck, permissionKeys: ['admins'] },
+  { label: 'Settings', to: '/dashboard/settings', icon: SettingsIcon, permissionKeys: ['settings'] },
 ]
 
 type Props = {
@@ -55,6 +58,9 @@ type Props = {
 }
 
 export default function Sidebar({ user, onLogout }: Props) {
+  const { data: profileRes } = useGetMyProfileQuery()
+  const profile = profileRes?.data
+
   const reports = useReports()
   const tickets = useTickets()
   const notifications = useNotifications()
@@ -66,7 +72,22 @@ export default function Sidebar({ user, onLogout }: Props) {
   const unreadNotifications = notifications.filter((n) => !n.read).length
   const liveNow = streams.filter((s) => s.status === 'live').length
 
-  const navItems: NavItem[] = baseNavItems.map((item) => {
+  const userRole = profile?.role || ''
+  const isSuperAdmin = userRole === 'super_admin'
+  const userPermissions = profile?.admin?.permissions
+
+  const filteredNavItems = baseNavItems.filter((item) => {
+    // Super admins see all items
+    if (isSuperAdmin) return true
+    // If user has admin permissions array defined, check if any key matches
+    if (userPermissions && Array.isArray(userPermissions)) {
+      return item.permissionKeys.some((pKey) => userPermissions.includes(pKey))
+    }
+    // Fallback if profile/permissions not loaded yet
+    return true
+  })
+
+  const navItems: NavItem[] = filteredNavItems.map((item) => {
     if (item.to === '/dashboard/reports' && pendingReports > 0) {
       return { ...item, badge: pendingReports }
     }
@@ -81,6 +102,10 @@ export default function Sidebar({ user, onLogout }: Props) {
     }
     return item
   })
+
+  const displayName = profile?.name || user.name
+  const displayRole = profile?.role ? profile.role.replace(/_/g, ' ').toUpperCase() : user.location
+  const displayAvatar = profile?.profileImage ? imageUrl(profile.profileImage) : user.avatarUrl
 
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-brand/60 bg-surface-sidebar">
@@ -126,24 +151,24 @@ export default function Sidebar({ user, onLogout }: Props) {
       <div className="border-t border-surface-border p-3">
         <div className="flex items-center gap-3 px-2 py-2">
           <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-surface-elevated">
-            {user.avatarUrl ? (
+            {displayAvatar ? (
               <img
-                src={user.avatarUrl}
-                alt={user.name}
+                src={displayAvatar}
+                alt={displayName}
                 className="h-full w-full object-cover"
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-gray-900">
-                {user.name.charAt(0)}
+                {displayName.charAt(0)}
               </div>
             )}
           </div>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-gray-900">
-              {user.name}
+              {displayName}
             </div>
             <div className="truncate text-xs text-gray-500">
-              {user.location}
+              {displayRole}
             </div>
           </div>
         </div>

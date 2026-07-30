@@ -53,6 +53,10 @@ type ProfileData = AuthUser & {
   createdAt: string
   updatedAt: string
   __v: number
+  admin?: {
+    _id?: string
+    permissions?: string[]
+  }
 }
 
 // ─── Auth API ─────────────────────────────────────────────────────────────────
