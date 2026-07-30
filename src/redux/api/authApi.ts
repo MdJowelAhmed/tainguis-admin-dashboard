@@ -1,5 +1,5 @@
 import { baseApi } from '../baseApi'
-import { setCredentials, clearCredentials } from '../slice/authSlice'
+import { setCredentials } from '../slice/authSlice'
 import type { AuthUser } from '../slice/authSlice'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -96,24 +96,6 @@ const authApi = baseApi.injectEndpoints({
         method: 'POST',
         body: credentials,
       }),
-      invalidatesTags: ['Auth'],
-    }),
-
-    // ── Logout ───────────────────────────────────────────────────────────────
-    logout: builder.mutation<ApiResponse, void>({
-      query: () => ({
-        url: '/auth/logout',
-        method: 'POST',
-      }),
-      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
-        try {
-          await queryFulfilled
-        } finally {
-          // Clear credentials and completely purge RTK Query cache memory
-          dispatch(clearCredentials())
-          dispatch(baseApi.util.resetApiState())
-        }
-      },
       invalidatesTags: ['Auth'],
     }),
 
@@ -229,7 +211,6 @@ const authApi = baseApi.injectEndpoints({
 export const {
   useLoginMutation,
   useRegisterMutation,
-  useLogoutMutation,
   useGetCurrentUserQuery,
   useChangePasswordMutation,
   useForgotPasswordMutation,
