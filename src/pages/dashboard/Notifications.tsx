@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { App, Spin } from 'antd'
 import {
   Bell,
@@ -60,7 +59,6 @@ export default function Notifications() {
     useReadAllNotificationsMutation()
   const [readSingleNotification] = useReadSingleNotificationMutation()
 
-  const navigate = useNavigate()
   const { message } = App.useApp()
   const [filter, setFilter] = useState<Filter>('all')
 

@@ -64,7 +64,7 @@ const resolutionConfig: Record<
 export default function ReportDetails() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { message, modal } = App.useApp()
+  const { message } = App.useApp()
 
   const { data: reportRes, isLoading: isLoadingReport, isError, error } = useGetReportByIdQuery(id!, { skip: !id })
   const report = reportRes?.data
