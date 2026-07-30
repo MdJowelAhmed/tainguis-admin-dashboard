@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { App, Input, Spin } from 'antd'
 import { imageUrl } from '../../lib/imageUrl'
 import {
@@ -50,13 +51,21 @@ const navItems: { key: SectionKey; label: string; icon: LucideIcon }[] = [
   { key: 'profile', label: 'Profile', icon: User },
   { key: 'password', label: 'Change Password', icon: Lock },
   { key: 'faq', label: 'FAQ', icon: HelpCircle },
-  { key: 'about', label: 'About Us', icon: Info },
+  // { key: 'about', label: 'About Us', icon: Info },
   { key: 'privacy', label: 'Privacy Policy', icon: Shield },
   { key: 'terms', label: 'Terms of Service', icon: FileText },
 ]
 
+const validSections: SectionKey[] = ['profile', 'password', 'faq', 'about', 'privacy', 'terms']
+
 export default function Settings() {
-  const [section, setSection] = useState<SectionKey>('profile')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab') as SectionKey
+  const section = validSections.includes(tabParam) ? tabParam : 'profile'
+
+  const handleTabChange = (key: SectionKey) => {
+    setSearchParams({ tab: key }, { replace: true })
+  }
 
   return (
     <div className="flex flex-col gap-6 py-6">
@@ -76,7 +85,7 @@ export default function Settings() {
                 <button
                   key={key}
                   type="button"
-                  onClick={() => setSection(key)}
+                  onClick={() => handleTabChange(key)}
                   className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors ${
                     active
                       ? 'bg-brand/10 text-brand font-medium'
