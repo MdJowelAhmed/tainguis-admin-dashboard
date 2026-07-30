@@ -16,7 +16,7 @@ const rawBaseQuery = fetchBaseQuery({
   baseUrl: `${API_BASE_URL}/api/v1`,
   prepareHeaders: (headers, { getState }) => {
     const token = (getState() as RootState).auth.token
-    if (token) {
+    if (!headers.has('Authorization') && token) {
       headers.set('Authorization', `Bearer ${token}`)
     }
     // NOTE: Do NOT set Content-Type manually.

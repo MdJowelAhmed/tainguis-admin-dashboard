@@ -44,7 +44,7 @@ export interface UpdateMyProfilePayload {
 }
 
 type LoginResponseData = { accessToken: string; role: string }
-type VerifyEmailResponseData = string // reset token
+type VerifyEmailResponseData = { token: string } | string
 type ProfileData = AuthUser & {
   _id: string
   isDeleted: boolean
@@ -155,8 +155,13 @@ const authApi = baseApi.injectEndpoints({
       async onQueryStarted(_arg, { queryFulfilled }) {
         try {
           const { data } = await queryFulfilled
-          if (data?.data) {
-            localStorage.setItem('resetPasswordToken', data.data)
+          const resData = data?.data as any
+          const token =
+            typeof resData === 'string'
+              ? resData
+              : resData?.token || resData?.accessToken
+          if (token && typeof token === 'string') {
+            localStorage.setItem('resetPasswordToken', token)
           }
         } catch {
           // RTK Query handles the error; component reads `isError`
