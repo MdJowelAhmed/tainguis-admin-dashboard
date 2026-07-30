@@ -9,7 +9,6 @@ import {
   Megaphone,
   ShieldCheck,
   ShoppingBag,
-  Trash2,
   Users as UsersIcon,
   type LucideIcon,
 } from 'lucide-react'
@@ -17,7 +16,6 @@ import {
   useGetAllNotificationsQuery,
   useReadAllNotificationsMutation,
   useReadSingleNotificationMutation,
-  useDeleteNotificationMutation,
   type NotificationItem,
 } from '../../redux/api/notificationApi'
 
@@ -61,10 +59,9 @@ export default function Notifications() {
   const [readAllNotifications, { isLoading: isReadingAll }] =
     useReadAllNotificationsMutation()
   const [readSingleNotification] = useReadSingleNotificationMutation()
-  const [deleteNotification] = useDeleteNotificationMutation()
 
   const navigate = useNavigate()
-  const { modal, message } = App.useApp()
+  const { message } = App.useApp()
   const [filter, setFilter] = useState<Filter>('all')
 
   const notifications = useMemo(
@@ -103,23 +100,6 @@ export default function Notifications() {
     if (n.referenceId) {
       // Optional navigation if link or reference exists
     }
-  }
-
-  const handleDelete = (n: NotificationItem) => {
-    modal.confirm({
-      title: 'Remove Notification?',
-      content: 'Are you sure you want to delete this notification?',
-      okText: 'Delete',
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        try {
-          await deleteNotification(n._id).unwrap()
-          message.success('Notification removed.')
-        } catch (err: any) {
-          message.error(err?.data?.message || 'Failed to delete notification')
-        }
-      },
-    })
   }
 
   const handleMarkAll = async () => {
@@ -284,17 +264,6 @@ export default function Notifications() {
                           <span className="text-xs text-gray-500">
                             {formatDate(n.createdAt)}
                           </span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDelete(n)
-                            }}
-                            aria-label="Remove notification"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 hover:bg-white hover:text-red-600"
-                          >
-                            <Trash2 size={14} />
-                          </button>
                         </div>
                       </div>
                       <div className="mt-1.5 flex items-center gap-2">
