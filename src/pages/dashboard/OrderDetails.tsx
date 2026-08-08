@@ -3,13 +3,13 @@ import { Link, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { App, Input, Modal, Select, Tag, Spin } from 'antd'
 import {
   ArrowLeft,
-  Ban,
+  // Ban,
   CreditCard,
   ExternalLink,
   MapPin,
   Package,
   Receipt,
-  RotateCcw,
+  // RotateCcw,
   Truck,
   User as UserIcon,
 } from 'lucide-react'
@@ -57,7 +57,7 @@ export default function OrderDetails() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
   const navigate = useNavigate()
-  const { message, modal } = App.useApp()
+  const { message } = App.useApp()
 
   const stateOrder = (location.state as { order?: OrderListItem } | null)?.order
 
@@ -152,18 +152,18 @@ export default function OrderDetails() {
     }
   }
 
-  const confirmRefund = () => {
-    modal.confirm({
-      title: 'Refund this order?',
-      content: 'The order will be marked refunded and the payment reversed.',
-      okText: 'Continue',
-      onOk: () => {
-        setRefundOpen(true)
-      },
-    })
-  }
+  // const confirmRefund = () => {
+  //   modal.confirm({
+  //     title: 'Refund this order?',
+  //     content: 'The order will be marked refunded and the payment reversed.',
+  //     okText: 'Continue',
+  //     onOk: () => {
+  //       setRefundOpen(true)
+  //     },
+  //   })
+  // }
 
-  const isFinal = order.orderStatus === 'refunded' || order.orderStatus === 'cancelled'
+  // const isFinal = order.orderStatus === 'refunded' || order.orderStatus === 'cancelled'
 
   const statusColor = orderStatusColor[order.orderStatus as OrderStatus] || (order.orderStatus === 'in_progress' ? 'blue' : 'geekblue')
   const statusLabelText = orderStatusLabel[order.orderStatus as OrderStatus] || order.orderStatus.replace(/_/g, ' ')
@@ -210,7 +210,7 @@ export default function OrderDetails() {
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            {/* <div className="flex flex-wrap items-center gap-2">
               {!isFinal && (
                 <button
                   type="button"
@@ -231,7 +231,7 @@ export default function OrderDetails() {
                   Refund
                 </button>
               )}
-            </div>
+            </div> */}
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -243,7 +243,7 @@ export default function OrderDetails() {
                   value={order.orderStatus}
                   onChange={onStatusChange}
                   options={statusOptions}
-                  disabled={isFinal}
+                  disabled
                   style={{ width: '100%' }}
                 />
               }
@@ -256,7 +256,7 @@ export default function OrderDetails() {
                   value={order.paymentStatus}
                   onChange={onPaymentChange}
                   options={paymentOptions}
-                  disabled={isFinal}
+                  disabled
                   style={{ width: '100%' }}
                 />
               }
